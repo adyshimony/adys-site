@@ -196,6 +196,7 @@
             content: attr(data-placeholder);
             color: var(--text-muted);
             pointer-events: none;
+            white-space: pre-line;
         }
         
         /* Syntax highlighting colors */
@@ -241,6 +242,7 @@
             content: attr(data-placeholder);
             color: var(--text-muted);
             pointer-events: none;
+            white-space: pre-line;
         }
         
         /* Miniscript-specific syntax highlighting colors */
@@ -972,7 +974,7 @@
                     <button onclick="copyPolicyExpression()" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Copy policy expression" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
                         📋
                     </button>
-                    <button onclick="sharePolicyExpression()" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Share policy via URL" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+                    <button onclick="sharePolicyExpression(event)" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Share policy via URL" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
                         🔗
                     </button>
                 </div>
@@ -981,8 +983,6 @@
                 id="policy-input" 
                 contenteditable="true"
                 spellcheck="false"
-                data-placeholder="Enter your policy here. Click any example button below to get started.
-Use 🏷️ to show/hide actual key values."
                 class="policy-editor"
             ></div>
             
@@ -1006,21 +1006,21 @@ Use 🏷️ to show/hide actual key values."
                 <div style="flex: 1;">
                     <h4 style="margin-bottom: 10px; color: var(--text-secondary);" id="policy-examples-title">Basic examples:</h4>
                     <div class="button-group" style="align-items: flex-start;" id="policy-buttons-start">
-                        <button onclick="showPolicyDescription('single'); loadPolicyExample('pk(Alice)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Single key</button>
-                        <button onclick="showPolicyDescription('or'); loadPolicyExample('or(pk(Alice),pk(Bob))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">OR keys</button>
-                        <button onclick="showPolicyDescription('and'); loadPolicyExample('and(pk(Alice),pk(Bob))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">AND keys</button>
-                        <button onclick="showPolicyDescription('threshold'); loadPolicyExample('thresh(2,pk(Alice),pk(Bob),pk(Charlie))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">2-of-3 Threshold</button>
-                        <button onclick="showPolicyDescription('timelock'); loadPolicyExample('or(pk(Alice),and(pk(Bob),older(144)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Alice OR (Bob + 1 day)</button>
-                        <button onclick="showPolicyDescription('xonly'); loadPolicyExample('pk(David)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">David (X-only)</button>
-                        <button onclick="showPolicyDescription('testnet_xpub'); loadPolicyExample('pk(TestnetKey)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Testnet xpub</button>
+                        <button onclick="showPolicyDescription('single'); loadPolicyExample('pk(Alice)', 'single')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Single key</button>
+                        <button onclick="showPolicyDescription('or'); loadPolicyExample('or(pk(Alice),pk(Bob))', 'or')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">OR keys</button>
+                        <button onclick="showPolicyDescription('and'); loadPolicyExample('and(pk(Alice),pk(Bob))', 'and')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">AND keys</button>
+                        <button onclick="showPolicyDescription('threshold'); loadPolicyExample('thresh(2,pk(Alice),pk(Bob),pk(Charlie))', 'threshold')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">2-of-3 Threshold</button>
+                        <button onclick="showPolicyDescription('alice_or_bob_timelock'); loadPolicyExample('or(pk(Alice),and(pk(Bob),older(144)))', 'alice_or_bob_timelock')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Alice OR (Bob + 1 day)</button>
+                        <button onclick="showPolicyDescription('xonly'); loadPolicyExample('pk(David)', 'xonly')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">David (X-only)</button>
+                        <button onclick="showPolicyDescription('testnet_xpub'); loadPolicyExample('pk(TestnetKey)', 'testnet_xpub')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Testnet xpub</button>
                     </div>
                     <h4 style="margin: 20px 0 10px 0; color: var(--text-secondary);">Complex examples:</h4>
                     <div class="button-group" style="align-items: flex-start;">
-                        <button onclick="showPolicyDescription('corporate'); loadPolicyExample('or(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),and(pk(Eva),after(1767225600)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Corporate Wallet</button>
-                        <button onclick="showPolicyDescription('recovery'); loadPolicyExample('or(95@pk(Alice),and(thresh(2,pk(Bob),pk(Charlie),pk(Eva)),older(1008)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Emergency Recovery</button>
-                        <button onclick="showPolicyDescription('twofa'); loadPolicyExample('and(pk(Alice),or(and(pk(Bob),hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8)),older(52560)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">2FA + Backup</button>
-                        <button onclick="showPolicyDescription('hodl'); loadPolicyExample('or(9@pk(Alice),and(thresh(3,pk(Bob),pk(Charlie),pk(Eva),pk(Frank)),older(52560)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">HODL Wallet</button>
-                        <button onclick="showPolicyDescription('timelocked_thresh'); loadPolicyExample('and(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),after(1767225600))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelocked Multisig</button>
+                        <button onclick="showPolicyDescription('corporate'); loadPolicyExample('or(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),and(pk(Eva),after(1767225600)))', 'corporate')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Corporate Wallet</button>
+                        <button onclick="showPolicyDescription('emergency_recovery'); loadPolicyExample('or(95@pk(Alice),and(thresh(2,pk(Bob),pk(Charlie),pk(Eva)),older(1008)))', 'emergency_recovery')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Emergency Recovery</button>
+                        <button onclick="showPolicyDescription('twofa'); loadPolicyExample('and(pk(Alice),or(and(pk(Bob),hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8)),older(52560)))', 'twofa')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">2FA + Backup</button>
+                        <button onclick="showPolicyDescription('hodl'); loadPolicyExample('or(9@pk(Alice),and(thresh(3,pk(Bob),pk(Charlie),pk(Eva),pk(Frank)),older(52560)))', 'hodl')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">HODL Wallet</button>
+                        <button onclick="showPolicyDescription('timelocked_thresh'); loadPolicyExample('and(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),after(1767225600))', 'timelocked_thresh')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelocked Multisig</button>
                     </div>
                 </div>
                 <div class="policy-description-panel" style="flex: 0 0 300px; width: 300px; background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: none; overflow-wrap: break-word; word-wrap: break-word;" id="policy-description">
@@ -1058,7 +1058,7 @@ Use 🏷️ to show/hide actual key values."
                     <button onclick="copyMiniscriptExpression()" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Copy miniscript expression" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
                         📋
                     </button>
-                    <button onclick="shareMiniscriptExpression()" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Share miniscript via URL" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+                    <button onclick="shareMiniscriptExpression(event)" style="background: none; border: none; padding: 4px; margin: 0; cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; border-radius: 3px;" title="Share miniscript via URL" onmouseover="this.style.backgroundColor='var(--button-secondary-bg)'" onmouseout="this.style.backgroundColor='transparent'">
                         🔗
                     </button>
                 </div>
@@ -1067,8 +1067,6 @@ Use 🏷️ to show/hide actual key values."
                 id="expression-input" 
                 contenteditable="true"
                 spellcheck="false"
-                data-placeholder="Enter your miniscript expression here. Click any example button below to get started.
-Use 🏷️ to show/hide actual key values."
                 class="miniscript-editor"
             ></div>
             
@@ -1092,26 +1090,26 @@ Use 🏷️ to show/hide actual key values."
                 <div style="flex: 1;">
                     <h4 style="margin-bottom: 10px; color: var(--text-secondary);" id="miniscript-examples-title">Basic examples:</h4>
                     <div class="button-group" style="align-items: flex-start;" id="miniscript-buttons-start">
-                        <button onclick="showMiniscriptDescription('pkh'); loadExample('pkh(Alice)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Pay-to-pubkey-hash</button>
-                        <button onclick="showMiniscriptDescription('wrap'); loadExample('c:pk_k(Alice)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Wrapped key</button>
-                        <button onclick="showMiniscriptDescription('or_i'); loadExample('or_i(pk(Alice),pk(Bob))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">OR with if-else</button>
-                        <button onclick="showMiniscriptDescription('complex'); loadExample('and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Complex: Alice AND (Bob OR Charlie)</button>
-                        <button onclick="showMiniscriptDescription('timelock'); loadExample('and_v(v:pk(Alice),and_v(v:older(144),pk(Bob)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelock: Alice AND (1 day + Bob)</button>
-                        <button onclick="showMiniscriptDescription('after'); loadExample('and_v(v:pk(Alice),after(1767225600))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Absolute timelock</button>
+                        <button onclick="showMiniscriptDescription('pkh'); loadExample('pkh(Alice)', 'pkh')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Pay-to-pubkey-hash</button>
+                        <button onclick="showMiniscriptDescription('wrap'); loadExample('c:pk_k(Alice)', 'wrap')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Wrapped key</button>
+                        <button onclick="showMiniscriptDescription('or_i'); loadExample('or_i(pk(Alice),pk(Bob))', 'or_i')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">OR with if-else</button>
+                        <button onclick="showMiniscriptDescription('complex'); loadExample('and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie)))', 'complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Complex: Alice AND (Bob OR Charlie)</button>
+                        <button onclick="showMiniscriptDescription('timelock'); loadExample('and_v(v:pk(Alice),and_v(v:older(144),pk(Bob)))', 'timelock')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelock: Alice AND (1 day + Bob)</button>
+                        <button onclick="showMiniscriptDescription('after'); loadExample('and_v(v:pk(Alice),after(1767225600))', 'after')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Absolute timelock</button>
                     </div>
                     <h4 style="margin: 20px 0 10px 0; color: var(--text-secondary);">Complex examples:</h4>
                     <div class="button-group" style="align-items: flex-start;">
-                        <button onclick="showMiniscriptDescription('multisig'); loadExample('or_d(pk(Alice),or_d(pk(Bob),pk(Charlie)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">1-of-3 Multisig</button>
-                        <button onclick="showMiniscriptDescription('recovery'); loadExample('or_d(pk(Alice),and_v(v:pk(Bob),older(1008)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Recovery Wallet</button>
-                        <button onclick="showMiniscriptDescription('hash'); loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Hash + Timelock</button>
-                        <button onclick="showMiniscriptDescription('inheritance'); loadExample('and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Taproot: Inheritance</button>
-                        <button onclick="showMiniscriptDescription('delayed'); loadExample('or_d(pk(Julia),and_v(v:pk(Karl),older(144)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Taproot: Immediate OR Delayed</button>
-                        <button onclick="showMiniscriptDescription('htlc_time'); loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Time-based HTLC</button>
-                        <button onclick="showMiniscriptDescription('htlc_hash'); loadExample('or_d(pk(Alice),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),and_v(v:pk(Bob),older(144))))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Hash-based HTLC</button>
-                        <button onclick="showMiniscriptDescription('joint_custody'); loadExample('andor(multi(2,jcKey1,jcKey2,jcKey3),or_i(and_v(v:pkh(saKey),after(1768176000)),thresh(2,pk(jcAg1),s:pk(jcAg2),s:pk(jcAg3),snl:after(1767225600))),and_v(v:thresh(2,pkh(recKey1),a:pkh(recKey2),a:pkh(recKey3)),after(1769817600)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">3-Key Joint Custody</button>
-                        <button onclick="showMiniscriptDescription('full_descriptor'); loadExample('pk(MainnetKey)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Full xpub descriptor</button>
-                        <button onclick="showMiniscriptDescription('range_descriptor'); loadExample('pk(RangeKey)')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Multipath range <1;0>/*</button>
-                        <button onclick="showMiniscriptDescription('vault_complex'); loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(TestnetKey)),after(1768435200)),and_v(or_c(pkh(VaultKey2),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey),a:pkh(VaultKey1))),after(1767830400))),and_v(or_c(pkh(VaultKey4),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey))),after(1767484800))),and_v(or_c(pkh(VaultKey3),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2))),after(1767312000))),and_v(v:pk(VaultKey3),pk(VaultKey4)))')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🏦 Complex Vault</button>
+                        <button onclick="showMiniscriptDescription('multisig'); loadExample('or_d(pk(Alice),or_d(pk(Bob),pk(Charlie)))', 'multisig')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">1-of-3 Multisig</button>
+                        <button onclick="showMiniscriptDescription('recovery'); loadExample('or_d(pk(Alice),and_v(v:pk(Bob),older(1008)))', 'recovery')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Recovery Wallet</button>
+                        <button onclick="showMiniscriptDescription('hash'); loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))', 'hash')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Hash + Timelock</button>
+                        <button onclick="showMiniscriptDescription('inheritance'); loadExample('and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))', 'inheritance')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Taproot: Inheritance</button>
+                        <button onclick="showMiniscriptDescription('delayed'); loadExample('or_d(pk(Julia),and_v(v:pk(Karl),older(144)))', 'delayed')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Taproot: Immediate OR Delayed</button>
+                        <button onclick="showMiniscriptDescription('htlc_time'); loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))', 'htlc_time')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Time-based HTLC</button>
+                        <button onclick="showMiniscriptDescription('htlc_hash'); loadExample('or_d(pk(Alice),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),and_v(v:pk(Bob),older(144))))', 'htlc_hash')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Hash-based HTLC</button>
+                        <button onclick="showMiniscriptDescription('joint_custody'); loadExample('andor(multi(2,jcKey1,jcKey2,jcKey3),or_i(and_v(v:pkh(saKey),after(1768176000)),thresh(2,pk(jcAg1),s:pk(jcAg2),s:pk(jcAg3),snl:after(1767225600))),and_v(v:thresh(2,pkh(recKey1),a:pkh(recKey2),a:pkh(recKey3)),after(1769817600)))', 'joint_custody')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">3-Key Joint Custody</button>
+                        <button onclick="showMiniscriptDescription('full_descriptor'); loadExample('pk(MainnetKey)', 'full_descriptor')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Full xpub descriptor</button>
+                        <button onclick="showMiniscriptDescription('range_descriptor'); loadExample('pk(RangeKey)', 'range_descriptor')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Multipath range <1;0>/*</button>
+                        <button onclick="showMiniscriptDescription('vault_complex'); loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(TestnetKey)),after(1768435200)),and_v(or_c(pkh(VaultKey2),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey),a:pkh(VaultKey1))),after(1767830400))),and_v(or_c(pkh(VaultKey4),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey))),after(1767484800))),and_v(or_c(pkh(VaultKey3),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2))),after(1767312000))),and_v(v:pk(VaultKey3),pk(VaultKey4)))', 'vault_complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🏦 Complex Vault</button>
                     </div>
                 </div>
                 <div class="miniscript-description-panel" style="flex: 0 0 300px; width: 300px; background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: none; overflow-wrap: break-word; word-wrap: break-word;" id="miniscript-description">
@@ -2010,6 +2008,18 @@ Use 🏷️ to show/hide actual key values."
                     </div>
                     <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
+                            <strong style="color: var(--text-color);">💡 Hide editor tips:</strong>
+                            <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
+                                Hide the helpful tips and instructions that appear in empty editors. Turn on for a cleaner interface with just "Enter your policy/miniscript here..." instead of detailed guidance.
+                            </p>
+                        </div>
+                        <label class="toggle-switch" style="margin-left: 20px;">
+                            <input type="checkbox" id="simple-placeholders-setting">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
                             <strong style="color: var(--text-color);">🔗 Share format:</strong>
                             <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
                                 Choose how shared URLs are formatted. URL encoding preserves special characters in readable format and is better for simple expressions. JSON creates base64-encoded URLs that include all state.
@@ -2665,6 +2675,47 @@ Use 🏷️ to show/hide actual key values."
                     }
                 });
             }
+            
+            // Simple placeholders setting
+            const simplePlaceholdersSetting = document.getElementById('simple-placeholders-setting');
+            const savedSimplePlaceholders = localStorage.getItem('simplePlaceholders') === 'true';
+            
+            // Store the full and simple placeholder texts
+            const placeholders = {
+                policy: {
+                    full: "Enter your policy here or click an example below.\nUse 🏷️ to show/hide key names, 🔑 to generate keys from your policy variable names or create variables from your raw keys, or create them manually in the key variable section. Use 📐 to indent, 🧹 to remove extra chars.\nCompilation results and errors appear below in the miniscript & script editors. 🔗 Share your work with others.\nYou can turn off these tips and example descriptions in the settings.",
+                    simple: "Enter your policy here..."
+                },
+                miniscript: {
+                    full: "Enter your miniscript here or click an example below.\nUse 🏷️ to show/hide key names, 🔑 to generate keys from your policy variable names or create variables from your raw keys, or create them manually in the key variable section. Use 📐 to format, 🧹 to clean extra chars, and ⬆️ to lift your expression back to policy. 🔗 Share your work with others.\nYou can turn off these tips and example descriptions in the settings.",
+                    simple: "Enter your miniscript here..."
+                }
+            };
+            
+            // Function to update placeholders
+            function updatePlaceholders(useSimple) {
+                const policyInput = document.getElementById('policy-input');
+                const miniscriptInput = document.getElementById('expression-input');
+                
+                if (policyInput) {
+                    policyInput.setAttribute('data-placeholder', useSimple ? placeholders.policy.simple : placeholders.policy.full);
+                }
+                if (miniscriptInput) {
+                    miniscriptInput.setAttribute('data-placeholder', useSimple ? placeholders.miniscript.simple : placeholders.miniscript.full);
+                }
+            }
+            
+            if (simplePlaceholdersSetting) {
+                simplePlaceholdersSetting.checked = savedSimplePlaceholders;
+                
+                simplePlaceholdersSetting.addEventListener('change', (e) => {
+                    localStorage.setItem('simplePlaceholders', String(e.target.checked));
+                    updatePlaceholders(e.target.checked);
+                });
+            }
+            
+            // Set initial placeholders on page load (single source of truth)
+            updatePlaceholders(savedSimplePlaceholders);
             
             // Also hide descriptions on page load if setting is off
             if (!savedShowDescriptions) {

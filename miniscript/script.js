@@ -4412,12 +4412,25 @@ window.generateKey = function() {
 };
 
 // Global function to load examples
-window.loadExample = function(example) {
+window.loadExample = function(example, exampleId) {
     const expressionInput = document.getElementById('expression-input');
     const isMobile = window.innerWidth <= 768;
     
     // Set the content
     expressionInput.textContent = example;
+    
+    // Store original template and example ID for sharing
+    if (exampleId) {
+        expressionInput.dataset.originalTemplate = example;
+        expressionInput.dataset.exampleId = 'miniscript-' + exampleId;
+        
+        // Clear policy template data since we're loading a miniscript
+        const policyInput = document.getElementById('policy-input');
+        if (policyInput) {
+            delete policyInput.dataset.originalTemplate;
+            delete policyInput.dataset.exampleId;
+        }
+    }
     
     // Clear the "last highlighted text" to force re-highlighting
     delete expressionInput.dataset.lastHighlightedText;
@@ -4521,14 +4534,27 @@ window.loadExample = function(example) {
 };
 
 // Global function to load policy examples
-window.loadPolicyExample = function(example) {
-    console.log('🚀 loadPolicyExample (from script.js) called with:', example);
+window.loadPolicyExample = function(example, exampleId) {
+    console.log('🚀 loadPolicyExample (from script.js) called with:', example, exampleId);
     
     const policyInput = document.getElementById('policy-input');
     const isMobile = window.innerWidth <= 768;
     
     // Set the content
     policyInput.textContent = example;
+    
+    // Store original template and example ID for sharing
+    if (exampleId) {
+        policyInput.dataset.originalTemplate = example;
+        policyInput.dataset.exampleId = 'policy-' + exampleId;
+        
+        // Clear miniscript template data since we're loading a policy
+        const miniscriptInput = document.getElementById('expression-input');
+        if (miniscriptInput) {
+            delete miniscriptInput.dataset.originalTemplate;
+            delete miniscriptInput.dataset.exampleId;
+        }
+    }
     
     if (isMobile) {
         // Mobile approach - focus, position cursor at end, then blur to prevent keyboard
@@ -5739,8 +5765,41 @@ function autoCompileIfEnabled(type) {
     }
 }
 
+// Helper function to find matching example for sharing
+function findMatchingExample() {
+    const policyInput = document.getElementById('policy-input');
+    const miniscriptInput = document.getElementById('expression-input');
+    
+    // Check if current content matches a stored example template
+    const policyTemplate = policyInput?.dataset.originalTemplate;
+    const policyExampleId = policyInput?.dataset.exampleId;
+    const policyCurrentContent = policyInput?.textContent?.trim();
+    
+    const miniscriptTemplate = miniscriptInput?.dataset.originalTemplate;
+    const miniscriptExampleId = miniscriptInput?.dataset.exampleId;
+    const miniscriptCurrentContent = miniscriptInput?.textContent?.trim();
+    
+    // Check if policy content matches its original template (even with keys replaced)
+    if (policyTemplate && policyExampleId && policyCurrentContent) {
+        // If current content matches the original template, we can share the example ID
+        if (policyCurrentContent === policyTemplate) {
+            return policyExampleId;
+        }
+    }
+    
+    // Check if miniscript content matches its original template (even with keys replaced)
+    if (miniscriptTemplate && miniscriptExampleId && miniscriptCurrentContent) {
+        // If current content matches the original template, we can share the example ID
+        if (miniscriptCurrentContent === miniscriptTemplate) {
+            return miniscriptExampleId;
+        }
+    }
+    
+    return null; // No matching example found
+}
+
 // Share policy expression via URL
-window.sharePolicyExpression = function() {
+window.sharePolicyExpression = function(event) {
     const policyInput = document.getElementById('policy-input');
     const policy = policyInput.textContent.trim();
     
@@ -5749,7 +5808,36 @@ window.sharePolicyExpression = function() {
         return;
     }
     
-    // Get share format setting
+    // Check if this matches a known example
+    const exampleId = findMatchingExample();
+    if (exampleId) {
+        // Share as example with animation
+        const shareUrl = `${window.location.origin}${window.location.pathname}#example=${exampleId}`;
+        
+        // Get button for animation
+        const button = event.target.closest('button');
+        const originalTitle = button.title;
+        
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            console.log('Example URL copied to clipboard:', shareUrl);
+            // Visual feedback
+            button.textContent = '✅';
+            button.title = 'Example link copied!';
+            button.style.color = 'var(--success-border)';
+            
+            setTimeout(() => {
+                button.textContent = '🔗';
+                button.title = originalTitle;
+                button.style.color = 'var(--text-secondary)';
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy to clipboard:', err);
+            alert(`Share this URL:\n${shareUrl}`);
+        });
+        return;
+    }
+    
+    // Get share format setting for full content sharing
     const shareFormat = document.getElementById('share-format-setting').value;
     let shareUrl;
     
@@ -5796,12 +5884,41 @@ window.sharePolicyExpression = function() {
 };
 
 // Share miniscript expression via URL
-window.shareMiniscriptExpression = function() {
+window.shareMiniscriptExpression = function(event) {
     const expressionInput = document.getElementById('expression-input');
     const miniscript = expressionInput.textContent.trim();
     
     if (!miniscript) {
         alert('No miniscript to share');
+        return;
+    }
+    
+    // Check if this matches a known example
+    const exampleId = findMatchingExample();
+    if (exampleId) {
+        // Share as example with animation
+        const shareUrl = `${window.location.origin}${window.location.pathname}#example=${exampleId}`;
+        
+        // Get button for animation
+        const button = event.target.closest('button');
+        const originalTitle = button.title;
+        
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            console.log('Example URL copied to clipboard:', shareUrl);
+            // Visual feedback
+            button.textContent = '✅';
+            button.title = 'Example link copied!';
+            button.style.color = 'var(--success-border)';
+            
+            setTimeout(() => {
+                button.textContent = '🔗';
+                button.title = originalTitle;
+                button.style.color = 'var(--text-secondary)';
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy to clipboard:', err);
+            alert(`Share this URL:\n${shareUrl}`);
+        });
         return;
     }
     
@@ -5964,13 +6081,156 @@ window.addEventListener('DOMContentLoaded', function() {
         const params = new URLSearchParams(hash);
         const sharedPolicy = params.get('policy');
         const sharedMiniscript = params.get('miniscript');
+        const exampleParam = params.get('example');
         
-        if (sharedPolicy) {
+        if (exampleParam) {
+            // Load example by ID
+            console.log('Loading example:', exampleParam);
+            
+            // Map of example IDs to button clicks (complete mapping)
+            const exampleMap = {
+                // Policy examples
+                'policy-single': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('single');
+                    if (window.loadPolicyExample) window.loadPolicyExample('pk(Alice)', 'single');
+                },
+                'policy-or': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('or');
+                    if (window.loadPolicyExample) window.loadPolicyExample('or(pk(Alice),pk(Bob))', 'or');
+                },
+                'policy-and': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('and');
+                    if (window.loadPolicyExample) window.loadPolicyExample('and(pk(Alice),pk(Bob))', 'and');
+                },
+                'policy-threshold': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('threshold');
+                    if (window.loadPolicyExample) window.loadPolicyExample('thresh(2,pk(Alice),pk(Bob),pk(Charlie))', 'threshold');
+                },
+                'policy-alice_or_bob_timelock': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('alice_or_bob_timelock');
+                    if (window.loadPolicyExample) window.loadPolicyExample('or(pk(Alice),and(pk(Bob),older(144)))', 'alice_or_bob_timelock');
+                },
+                'policy-xonly': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('xonly');
+                    if (window.loadPolicyExample) window.loadPolicyExample('pk(David)', 'xonly');
+                },
+                'policy-testnet_xpub': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('testnet_xpub');
+                    if (window.loadPolicyExample) window.loadPolicyExample('pk(TestnetKey)', 'testnet_xpub');
+                },
+                'policy-corporate': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('corporate');
+                    if (window.loadPolicyExample) window.loadPolicyExample('or(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),and(pk(Eva),after(1767225600)))', 'corporate');
+                },
+                'policy-emergency_recovery': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('emergency_recovery');
+                    if (window.loadPolicyExample) window.loadPolicyExample('or(95@pk(Alice),and(thresh(2,pk(Bob),pk(Charlie),pk(Eva)),older(1008)))', 'emergency_recovery');
+                },
+                'policy-twofa': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('twofa');
+                    if (window.loadPolicyExample) window.loadPolicyExample('and(pk(Alice),or(and(pk(Bob),hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8)),older(52560)))', 'twofa');
+                },
+                'policy-hodl': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('hodl');
+                    if (window.loadPolicyExample) window.loadPolicyExample('or(9@pk(Alice),and(thresh(3,pk(Bob),pk(Charlie),pk(Eva),pk(Frank)),older(52560)))', 'hodl');
+                },
+                'policy-timelocked_thresh': () => {
+                    if (window.showPolicyDescription) window.showPolicyDescription('timelocked_thresh');
+                    if (window.loadPolicyExample) window.loadPolicyExample('and(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),after(1767225600))', 'timelocked_thresh');
+                },
+                
+                // Miniscript examples
+                'miniscript-pkh': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('pkh');
+                    if (window.loadExample) window.loadExample('pkh(Alice)', 'pkh');
+                },
+                'miniscript-wrap': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('wrap');
+                    if (window.loadExample) window.loadExample('c:pk_k(Alice)', 'wrap');
+                },
+                'miniscript-or_i': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('or_i');
+                    if (window.loadExample) window.loadExample('or_i(pk(Alice),pk(Bob))', 'or_i');
+                },
+                'miniscript-complex': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('complex');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie)))', 'complex');
+                },
+                'miniscript-timelock': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('timelock');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(Alice),and_v(v:older(144),pk(Bob)))', 'timelock');
+                },
+                'miniscript-after': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('after');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(Alice),after(1767225600))', 'after');
+                },
+                'miniscript-multisig': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('multisig');
+                    if (window.loadExample) window.loadExample('or_d(pk(Alice),or_d(pk(Bob),pk(Charlie)))', 'multisig');
+                },
+                'miniscript-recovery': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('recovery');
+                    if (window.loadExample) window.loadExample('or_d(pk(Alice),and_v(v:pk(Bob),older(1008)))', 'recovery');
+                },
+                'miniscript-hash': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('hash');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))', 'hash');
+                },
+                'miniscript-inheritance': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('inheritance');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))', 'inheritance');
+                },
+                'miniscript-delayed': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('delayed');
+                    if (window.loadExample) window.loadExample('or_d(pk(Julia),and_v(v:pk(Karl),older(144)))', 'delayed');
+                },
+                'miniscript-htlc_time': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('htlc_time');
+                    if (window.loadExample) window.loadExample('and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),older(144))))', 'htlc_time');
+                },
+                'miniscript-htlc_hash': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('htlc_hash');
+                    if (window.loadExample) window.loadExample('or_d(pk(Alice),and_v(v:hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8),and_v(v:pk(Bob),older(144))))', 'htlc_hash');
+                },
+                'miniscript-joint_custody': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('joint_custody');
+                    if (window.loadExample) window.loadExample('andor(multi(2,jcKey1,jcKey2,jcKey3),or_i(and_v(v:pkh(saKey),after(1768176000)),thresh(2,pk(jcAg1),s:pk(jcAg2),s:pk(jcAg3),snl:after(1767225600))),and_v(v:thresh(2,pkh(recKey1),a:pkh(recKey2),a:pkh(recKey3)),after(1769817600)))', 'joint_custody');
+                },
+                'miniscript-full_descriptor': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('full_descriptor');
+                    if (window.loadExample) window.loadExample('pk(MainnetKey)', 'full_descriptor');
+                },
+                'miniscript-range_descriptor': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('range_descriptor');
+                    if (window.loadExample) window.loadExample('pk(RangeKey)', 'range_descriptor');
+                },
+                'miniscript-vault_complex': () => {
+                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('vault_complex');
+                    if (window.loadExample) window.loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(TestnetKey)),after(1768435200)),and_v(or_c(pkh(VaultKey2),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey),a:pkh(VaultKey1))),after(1767830400))),and_v(or_c(pkh(VaultKey4),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey))),after(1767484800))),and_v(or_c(pkh(VaultKey3),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2))),after(1767312000))),and_v(v:pk(VaultKey3),pk(VaultKey4)))', 'vault_complex');
+                }
+            };
+            
+            const loadExample = exampleMap[exampleParam];
+            if (loadExample) {
+                setTimeout(() => {
+                    loadExample();
+                    console.log('Example loaded:', exampleParam);
+                }, 100); // Small delay to ensure functions are available
+            } else {
+                console.warn('Unknown example:', exampleParam);
+            }
+            
+        } else if (sharedPolicy) {
             // Load policy from URL
             const policyInput = document.getElementById('policy-input');
             if (policyInput) {
                 policyInput.textContent = decodeURIComponent(sharedPolicy);
                 console.log('Loaded shared policy:', sharedPolicy);
+                
+                // Apply syntax highlighting after setting content
+                if (window.compiler && window.compiler.highlightPolicySyntax) {
+                    window.compiler.highlightPolicySyntax();
+                }
                 
                 // Set button state based on content AFTER initialization
                 setTimeout(() => {
@@ -6007,6 +6267,11 @@ window.addEventListener('DOMContentLoaded', function() {
             if (expressionInput) {
                 expressionInput.textContent = decodeURIComponent(sharedMiniscript);
                 console.log('Loaded shared miniscript:', sharedMiniscript);
+                
+                // Apply syntax highlighting after setting content
+                if (window.compiler && window.compiler.highlightMiniscriptSyntax) {
+                    window.compiler.highlightMiniscriptSyntax();
+                }
                 
                 // Set button state based on content AFTER initialization
                 setTimeout(() => {
