@@ -1,0 +1,42 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/about",
+      "destination": "/about/index.html"
+    },
+    {
+      "source": "/blog", 
+      "destination": "/blog/index.html"
+    },
+    {
+      "source": "/talks",
+      "destination": "/talks/index.html"
+    },
+    {
+      "source": "/tools",
+      "destination": "/tools/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/miniscript/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/images/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control", 
+          "value": "public, max-age=31536000"
+        }
+      ]
+    }
+  ]
+}

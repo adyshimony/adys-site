@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools - Adys</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="nav-container">
+                <div class="logo">
+                    <a href="/">ADYS</a>
+                </div>
+                <div class="hamburger" onclick="toggleMenu()">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/about">About</a></li>
+                    <li><a href="/blog">Blog</a></li>
+                    <li><a href="/talks">Talks</a></li>
+                    <li><a href="/tools" class="active">Tools</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="tools-content">
+            <div class="container">
+                <h1>Tools</h1>
+                
+                <div class="tools-list">
+                    <a href="/miniscript" class="tool-item">
+                        <div class="tool-icon">🔨</div>
+                        <div class="tool-details">
+                            <h3>Miniscript Compiler</h3>
+                            <p>Compile and analyze Bitcoin Miniscript policies</p>
+                        </div>
+                        <div class="tool-arrow">→</div>
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Adys.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Theme management
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const toggleBtn = document.querySelector('.theme-toggle');
+            if (toggleBtn) {
+                toggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            }
+        }
+        
+        function syncTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            if (savedTheme !== currentTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', initTheme);
+        
+        // Listen for theme changes from other pages (like miniscript)
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'theme') {
+                syncTheme();
+            }
+        });
+        
+        // Also check for theme changes on page focus (when returning from another page)
+        window.addEventListener('focus', syncTheme);
+        
+        // Handle back/forward button navigation
+        window.addEventListener('pageshow', syncTheme);
+        
+        // Mobile menu toggle
+        function toggleMenu() {
+            const navMenu = document.getElementById('navMenu');
+            navMenu.classList.toggle('active');
+        }
+    </script>
+</body>
+</html>
