@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Adys - Bitcoin Developer</title>
     <link rel="stylesheet" href="styles.css">
+    <script>
+        // Set theme immediately to prevent flash
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
 </head>
 <body>
     <header>
@@ -19,7 +24,7 @@
                     <span></span>
                 </div>
                 <ul class="nav-menu" id="navMenu">
-                    <li><a href="/">Home</a></li>
+                    <li><a href="/" class="active">Home</a></li>
                     <li><a href="/about">About</a></li>
                     <li><a href="/blog">Blog</a></li>
                     <li><a href="/talks">Talks</a></li>
@@ -46,7 +51,7 @@
         // Theme management
         function initTheme() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', savedTheme);
+            // Theme already set in head, just update icon
             updateThemeIcon(savedTheme);
         }
 

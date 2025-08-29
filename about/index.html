@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About - Adys</title>
     <link rel="stylesheet" href="../styles.css">
+    <script>
+        // Set theme immediately to prevent flash
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
 </head>
 <body>
     <header>
@@ -25,6 +30,7 @@
                     <li><a href="/talks">Talks</a></li>
                     <li><a href="/tools">Tools</a></li>
                 </ul>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
@@ -57,7 +63,7 @@
         // Theme management
         function initTheme() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', savedTheme);
+            // Theme already set in head, just update icon
             updateThemeIcon(savedTheme);
         }
 
