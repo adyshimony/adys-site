@@ -24,6 +24,7 @@
     --code-bg: #1a202c;
 }
 
+
 /* Light theme */
 [data-theme="light"] {
     --bg-gradient: linear-gradient(135deg, #f7fafc 0%, #e2e8f0 100%);
@@ -588,6 +589,25 @@ footer {
     padding: 0.75rem 0;
     margin-top: auto;
     border-top: 1px solid var(--border-color);
+}
+
+footer .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+    max-width: none;
+    width: 100%;
+    padding: 0 20px;
+}
+
+footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+footer a:hover {
+    color: var(--accent-color);
 }
 
 /* Editable fields brightness in light theme */
