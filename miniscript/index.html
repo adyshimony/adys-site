@@ -640,6 +640,11 @@
                 display: none !important;
             }
             
+            /* Mobile: Always hide corner buttons regardless of setting */
+            a[href*="coinos.io"], a[href*="github.com"] {
+                display: none !important;
+            }
+            
             /* Mobile: Force button containers to take full width */
             div[style*="display: flex"][style*="justify-content: space-between"] .button-group {
                 width: 100% !important;
@@ -975,6 +980,7 @@
             <div 
                 id="policy-input" 
                 contenteditable="true"
+                spellcheck="false"
                 data-placeholder="Enter your policy here. Click any example button below to get started.
 Use 🏷️ to show/hide actual key values."
                 class="policy-editor"
@@ -1060,6 +1066,7 @@ Use 🏷️ to show/hide actual key values."
             <div 
                 id="expression-input" 
                 contenteditable="true"
+                spellcheck="false"
                 data-placeholder="Enter your miniscript expression here. Click any example button below to get started.
 Use 🏷️ to show/hide actual key values."
                 class="miniscript-editor"
@@ -2005,19 +2012,19 @@ Use 🏷️ to show/hide actual key values."
                         <div>
                             <strong style="color: var(--text-color);">🔗 Share format:</strong>
                             <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                                Choose how shared URLs are formatted. URL encoding preserves special characters in readable format. JSON creates compact base64-encoded URLs that include all state.
+                                Choose how shared URLs are formatted. URL encoding preserves special characters in readable format and is better for simple expressions. JSON creates base64-encoded URLs that include all state.
                             </p>
                         </div>
                         <select id="share-format-setting" style="margin-left: 20px; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); font-size: 13px;">
-                            <option value="url">URL encoded</option>
-                            <option value="json" selected>JSON (compact)</option>
+                            <option value="url" selected>URL encoded</option>
+                            <option value="json">JSON</option>
                         </select>
                     </div>
                     <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong style="color: var(--text-color);">👁️ Hide corner buttons:</strong>
+                            <strong style="color: var(--text-color);">👁️ Hide corner buttons (web only):</strong>
                             <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                                Hide the GitHub and beer donation buttons in the top corners for a cleaner interface.
+                                Hide the GitHub and beer donation buttons in the top corners for a cleaner interface. Corner buttons are automatically hidden on mobile devices.
                             </p>
                         </div>
                         <label class="toggle-switch" style="margin-left: 20px;">
