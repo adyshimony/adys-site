@@ -1,0 +1,48 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# Build outputs
+.dist/
+dist/
+build/
+out/
+
+# Framework caches
+.next/
+.nuxt/
+.cache/
+.svelte-kit/
+
+# Coverage
+coverage/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Vercel
+.vercel/
+
+# Local AI tooling
+.claude/
+
+# Misc
+*.swp
+*.swo
+.vercelignore
