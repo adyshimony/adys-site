@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Adys - Bitcoin Developer</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="styles.css">
+    <script src="app.js"></script>
     <script>
         // Set theme immediately to prevent flash
         const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -51,7 +53,6 @@
         // Theme management
         function initTheme() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
-            // Theme already set in head, just update icon
             updateThemeIcon(savedTheme);
         }
 
@@ -70,43 +71,14 @@
             }
         }
 
-        // Initialize on load
-        document.addEventListener('DOMContentLoaded', initTheme);
-        
-        // Listen for theme changes from other pages (like miniscript)
-        window.addEventListener('storage', function(e) {
-            if (e.key === 'theme') {
-                const newTheme = e.newValue || 'dark';
-                document.documentElement.setAttribute('data-theme', newTheme);
-                updateThemeIcon(newTheme);
-            }
-        });
-        
-        // Also check for theme changes on page focus (when returning from another page)
-        window.addEventListener('focus', function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            if (savedTheme !== currentTheme) {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                updateThemeIcon(savedTheme);
-            }
-        });
-        
-        // Handle back/forward button navigation
-        window.addEventListener('pageshow', function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            if (savedTheme !== currentTheme) {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                updateThemeIcon(savedTheme);
-            }
-        });
-        
         // Mobile menu toggle
         function toggleMenu() {
             const navMenu = document.getElementById('navMenu');
             navMenu.classList.toggle('active');
         }
+
+        // Initialize theme when DOM is ready
+        document.addEventListener('DOMContentLoaded', initTheme);
     </script>
 </body>
 </html>
