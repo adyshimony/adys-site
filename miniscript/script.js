@@ -516,6 +516,9 @@ class MiniscriptCompiler {
                 delete expressionInput.dataset.lastHighlightedText;
                 this.highlightMiniscriptSyntax();
                 
+                // Position cursor at end after compilation
+                this.positionCursorAtEnd(expressionInput);
+                
                 
                 // Debug: Log all available fields
                 console.log('=== ALL COMPILATION RESULT FIELDS ===');
@@ -667,6 +670,9 @@ class MiniscriptCompiler {
                 // Clear the highlighting cache and re-highlight
                 delete expressionInput.dataset.lastHighlightedText;
                 this.highlightMiniscriptSyntax();
+                
+                // Position cursor at end after policy compilation puts miniscript
+                this.positionCursorAtEnd(expressionInput);
                 
                 
                 // Always set toggle button to "Hide Key Names" state after compilation if we replaced keys
@@ -886,7 +892,7 @@ class MiniscriptCompiler {
             .replace(/,/g, '<span class="syntax-comma">$&</span>');
     }
 
-    highlightMiniscriptSyntax() {
+    highlightMiniscriptSyntax(skipCursorRestore = false) {
         const expressionInput = document.getElementById('expression-input');
         const text = expressionInput.textContent || '';
         
@@ -915,33 +921,10 @@ class MiniscriptCompiler {
             expressionInput.innerHTML = highlightedHTML;
             // Force reapply styling after innerHTML change
             this.enforceElementStyling(expressionInput);
-            
-            // Always position cursor at end instead of restoring original position
-            const range = document.createRange();
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            
-            // Find the last text node to ensure we're at the very end
-            const walker = document.createTreeWalker(
-                expressionInput,
-                NodeFilter.SHOW_TEXT,
-                null,
-                false
-            );
-            let lastTextNode = null;
-            while (walker.nextNode()) {
-                lastTextNode = walker.currentNode;
+            // Restore cursor position only if not skipping
+            if (!skipCursorRestore) {
+                this.restoreCursor(expressionInput, caretOffset);
             }
-            
-            if (lastTextNode) {
-                range.setStart(lastTextNode, lastTextNode.textContent.length);
-                range.setEnd(lastTextNode, lastTextNode.textContent.length);
-            } else {
-                range.selectNodeContents(expressionInput);
-                range.collapse(false);
-            }
-            
-            sel.addRange(range);
         }
         
         // Store the last highlighted text
@@ -1272,6 +1255,34 @@ class MiniscriptCompiler {
         range.selectNodeContents(element);
         range.collapse(false);
         selection.removeAllRanges();
+        selection.addRange(range);
+    }
+
+    positionCursorAtEnd(element) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        selection.removeAllRanges();
+        
+        // Find the last text node to ensure we're at the very end
+        const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+        let lastTextNode = null;
+        while (walker.nextNode()) {
+            lastTextNode = walker.currentNode;
+        }
+        
+        if (lastTextNode) {
+            range.setStart(lastTextNode, lastTextNode.textContent.length);
+            range.setEnd(lastTextNode, lastTextNode.textContent.length);
+        } else {
+            range.selectNodeContents(element);
+            range.collapse(false);
+        }
+        
         selection.addRange(range);
     }
 
@@ -4946,48 +4957,19 @@ window.loadExample = function(example, exampleId) {
     delete expressionInput.dataset.lastHighlightedText;
     
     if (window.compiler && window.compiler.highlightMiniscriptSyntax) {
-        window.compiler.highlightMiniscriptSyntax();
+        window.compiler.highlightMiniscriptSyntax(true); // Skip cursor restore when loading examples
     }
     
-    // Position cursor at end AFTER highlighting (for both mobile and desktop)
-    const positionCursorAtEnd = () => {
-        const range = document.createRange();
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        
-        // Find the last text node to ensure we're at the very end
-        const walker = document.createTreeWalker(
-            expressionInput,
-            NodeFilter.SHOW_TEXT,
-            null,
-            false
-        );
-        let lastTextNode = null;
-        while (walker.nextNode()) {
-            lastTextNode = walker.currentNode;
-        }
-        
-        if (lastTextNode) {
-            range.setStart(lastTextNode, lastTextNode.textContent.length);
-            range.setEnd(lastTextNode, lastTextNode.textContent.length);
-        } else {
-            range.selectNodeContents(expressionInput);
-            range.collapse(false);
-        }
-        
-        sel.addRange(range);
-        
-        // Blur on mobile to prevent keyboard popup
-        if (isMobile) {
-            setTimeout(() => expressionInput.blur(), 10);
-        }
-    };
-    
-    // Try multiple times to ensure cursor positioning sticks
-    // NOTE: The input event listener triggers highlighting after 500ms, so we need to position cursor after that
-    setTimeout(positionCursorAtEnd, 600);  // After the 500ms delayed highlighting
-    setTimeout(positionCursorAtEnd, 700);  // Extra attempt to ensure it sticks
-    setTimeout(positionCursorAtEnd, 800);
+    // Position cursor at end after highlighting
+    if (window.compiler && window.compiler.positionCursorAtEnd) {
+        setTimeout(() => {
+            window.compiler.positionCursorAtEnd(expressionInput);
+            // Blur on mobile to prevent keyboard popup
+            if (isMobile) {
+                setTimeout(() => expressionInput.blur(), 10);
+            }
+        }, 600); // After the 500ms delayed highlighting
+    }
     
     // Clear results first, then initialize empty
     const resultsDiv = document.getElementById('results');
@@ -5521,14 +5503,14 @@ window.showMiniscriptDescription = function(exampleId) {
             structure: 'andor(multi(2,jcKey1,jcKey2,jcKey3), or_i(...), and_v(...)) → 4-layer custody with Principal/Agent cooperation',
             bitcoinScript: '🔒 Layer 1: 2-of-3 Principal multi (immediate) → 🕐 Layer 2: Single Agent + timelock (Jan 12, 2026) OR 2-of-3 Agent thresh + earlier timelock (Jan 1, 2026) → ⏰ Layer 3: 2-of-3 Recovery + later timelock (Feb 1, 2026)',
             useCase: 'Sophisticated joint custody with "Negative Control" - funds cannot move without both Principal and Agent layers cooperating. Principal keys (jcKey1-3) provide 2-of-3 multisig control. Agent layer provides oversight with timelocked fallbacks. Recovery layer provides ultimate fallback after longer delays.',
-            technical: '💡 Why this structure: andor creates 3 distinct spending paths with different security models. First path (multi) requires 2-of-3 Principal signatures - most secure, immediate access. Second path (or_i) provides Agent oversight with time-based escalation. Third path (and_v) ensures recovery is possible but requires longest wait and 2-of-3 recovery keys. This prevents any single layer from unilaterally moving funds while providing multiple recovery mechanisms.<br><br>📋 Based on: <a href="https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md" target="_blank" style="color: var(--accent-color);">Blockstream MINT-005 Template</a>'
+            technical: '💡 Why this structure: andor creates 3 distinct spending paths with different security models. First path (multi) requires 2-of-3 Principal signatures - most secure, immediate access. Second path (or_i) provides Agent oversight with time-based escalation. Third path (and_v) ensures recovery is possible but requires longest wait and 2-of-3 recovery keys. This prevents any single layer from unilaterally moving funds while providing multiple recovery mechanisms.<br><br>📋 Based on Blockstream MINT-005 Template<br><a href="https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md" target="_blank" style="color: var(--accent-color);">https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md</a>'
         },
         'liana_wallet': {
             title: '🦎 Liana Wallet: Multi-Tier Recovery Vault',
             structure: 'or_i(and_v(v:thresh(1,...),older(20)),or_i(and_v(v:pkh(...),older(19)),or_d(multi(2,...),and_v(v:pkh(...),older(18))))) → 4-path timelocked recovery system',
             bitcoinScript: '🔒 Path 1: Any 1-of-3 Primary keys after 20 blocks → 🕐 Path 2: Recovery Key after 19 blocks → 💰 Path 3: 2-of-2 Backup multisig (immediate) → ⏰ Path 4: Final Recovery key after 18 blocks',
             useCase: 'Professional Bitcoin custody solution with graduated recovery paths. Liana Wallet implements a sophisticated multi-tier system where different spending conditions become available over time. Primary keys provide flexible 1-of-3 access after short delay, recovery keys activate after medium delay, backup multisig works immediately, and final recovery ensures funds are never lost.',
-            technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on: <a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">Liana Wallet Documentation</a>'
+            technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on Liana Wallet Documentation<br><a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md</a>'
         }
     };
     
@@ -5956,14 +5938,14 @@ window.showMiniscriptDescription = function(exampleId) {
             structure: 'andor(multi(2,jcKey1,jcKey2,jcKey3), or_i(...), and_v(...)) → 4-layer custody with Principal/Agent cooperation',
             bitcoinScript: '🔒 Layer 1: 2-of-3 Principal multi (immediate) → 🕐 Layer 2: Single Agent + timelock (Jan 12, 2026) OR 2-of-3 Agent thresh + earlier timelock (Jan 1, 2026) → ⏰ Layer 3: 2-of-3 Recovery + later timelock (Feb 1, 2026)',
             useCase: 'Sophisticated joint custody with "Negative Control" - funds cannot move without both Principal and Agent layers cooperating. Principal keys (jcKey1-3) provide 2-of-3 multisig control. Agent layer provides oversight with timelocked fallbacks. Recovery layer provides ultimate fallback after longer delays.',
-            technical: '💡 Why this structure: andor creates 3 distinct spending paths with different security models. First path (multi) requires 2-of-3 Principal signatures - most secure, immediate access. Second path (or_i) provides Agent oversight with time-based escalation. Third path (and_v) ensures recovery is possible but requires longest wait and 2-of-3 recovery keys. This prevents any single layer from unilaterally moving funds while providing multiple recovery mechanisms.<br><br>📋 Based on: <a href="https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md" target="_blank" style="color: var(--accent-color);">Blockstream MINT-005 Template</a>'
+            technical: '💡 Why this structure: andor creates 3 distinct spending paths with different security models. First path (multi) requires 2-of-3 Principal signatures - most secure, immediate access. Second path (or_i) provides Agent oversight with time-based escalation. Third path (and_v) ensures recovery is possible but requires longest wait and 2-of-3 recovery keys. This prevents any single layer from unilaterally moving funds while providing multiple recovery mechanisms.<br><br>📋 Based on Blockstream MINT-005 Template<br><a href="https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md" target="_blank" style="color: var(--accent-color);">https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md</a>'
         },
         'liana_wallet': {
             title: '🦎 Liana Wallet: Multi-Tier Recovery Vault',
             structure: 'or_i(and_v(v:thresh(1,...),older(20)),or_i(and_v(v:pkh(...),older(19)),or_d(multi(2,...),and_v(v:pkh(...),older(18))))) → 4-path timelocked recovery system',
             bitcoinScript: '🔒 Path 1: Any 1-of-3 Primary keys after 20 blocks → 🕐 Path 2: Recovery Key after 19 blocks → 💰 Path 3: 2-of-2 Backup multisig (immediate) → ⏰ Path 4: Final Recovery key after 18 blocks',
             useCase: 'Professional Bitcoin custody solution with graduated recovery paths. Liana Wallet implements a sophisticated multi-tier system where different spending conditions become available over time. Primary keys provide flexible 1-of-3 access after short delay, recovery keys activate after medium delay, backup multisig works immediately, and final recovery ensures funds are never lost.',
-            technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on: <a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">Liana Wallet Documentation</a>'
+            technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on Liana Wallet Documentation<br><a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md</a>'
         }
     };
     
