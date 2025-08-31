@@ -567,12 +567,8 @@ class MiniscriptCompiler {
                 // Skip tree for descriptor validation
                 let treeExpression = null;
                 if (!isDescriptorValidation) {
-                    treeExpression = result.compiled_miniscript || expression;
-                    
-                    // Replace hex keys with key names if we have them
-                    if (result.compiled_miniscript && this.keyVariables.size > 0) {
-                        treeExpression = this.replaceKeysWithNames(result.compiled_miniscript);
-                    }
+                    // Use original expression for tree to preserve key names and descriptors
+                    treeExpression = expression;
                 }
                 
                 this.showMiniscriptSuccess(successMsg, treeExpression);
@@ -4992,6 +4988,11 @@ window.loadExample = function(example, exampleId) {
     setTimeout(positionCursorAtEnd, 600);  // After the 500ms delayed highlighting
     setTimeout(positionCursorAtEnd, 700);  // Extra attempt to ensure it sticks
     setTimeout(positionCursorAtEnd, 800);
+    
+    // Clear results first, then initialize empty
+    const resultsDiv = document.getElementById('results');
+    if (resultsDiv) resultsDiv.innerHTML = '';
+    
     if (window.compiler && window.compiler.initializeEmptyResults) {
         window.compiler.initializeEmptyResults();
     }
