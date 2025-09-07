@@ -163,6 +163,24 @@ export function compile_policy(policy, context) {
 }
 
 /**
+ * Compile a policy to miniscript with mode support
+ * @param {string} policy
+ * @param {string} context
+ * @param {string} mode
+ * @returns {any}
+ */
+export function compile_policy_with_mode(policy, context, mode) {
+    const ptr0 = passStringToWasm0(policy, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(context, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.compile_policy_with_mode(ptr0, len0, ptr1, len1, ptr2, len2);
+    return ret;
+}
+
+/**
  * Compile a miniscript expression to Bitcoin script
  * @param {string} expression
  * @param {string} context

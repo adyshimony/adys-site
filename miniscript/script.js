@@ -1,4 +1,4 @@
-import init, { compile_miniscript, compile_miniscript_with_mode, compile_policy, lift_to_miniscript, lift_to_policy, generate_address_for_network, generate_taproot_address_for_network, generate_taproot_address_with_builder, get_taproot_leaves } from './pkg/miniscript_wasm.js';
+import init, { compile_miniscript, compile_miniscript_with_mode, compile_policy, compile_policy_with_mode, lift_to_miniscript, lift_to_policy, generate_address_for_network, generate_taproot_address_for_network, generate_taproot_address_with_builder, get_taproot_leaves } from './pkg/miniscript_wasm.js';
 // Cache buster - updated 2025-01-18 v3
 
 class MiniscriptCompiler {
@@ -506,10 +506,13 @@ class MiniscriptCompiler {
             
             // Call the WASM function with context and mode
             let result;
-            if (context === 'taproot') {
-                const currentMode = window.currentTaprootMode || 'single-leaf';
+            if (context === 'taproot' || context === 'taproot-multi') {
+                // Determine mode based on context
+                const currentMode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
+                window.currentTaprootMode = currentMode; // Update the global mode
                 console.log(`Compiling miniscript in taproot context, mode: ${currentMode}`);
-                result = compile_miniscript_with_mode(processedExpression, context, currentMode);
+                // Always pass 'taproot' as the actual context to Rust
+                result = compile_miniscript_with_mode(processedExpression, 'taproot', currentMode);
                 if (result.success) {
                     result.taprootMode = currentMode;
                 }
@@ -649,7 +652,7 @@ class MiniscriptCompiler {
 
     compilePolicy() {
         const policy = document.getElementById('policy-input').textContent.trim();
-        const context = document.querySelector('input[name="context"]:checked').value;
+        const context = document.querySelector('input[name="policy-context"]:checked').value;
         
         // Clear previous errors (preserve success if this is from auto-compile)
         const isAutoCompile = this.isAutoCompiling || false;
@@ -697,8 +700,18 @@ class MiniscriptCompiler {
             delete policyInput.dataset.lastHighlightedText;
             this.highlightPolicySyntax();
             
-            // Call the WASM function with context
-            const result = compile_policy(processedPolicy, context);
+            // Call the WASM function with context and mode for taproot
+            let result;
+            if (context === 'taproot' || context === 'taproot-multi') {
+                // Determine mode based on context
+                const mode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
+                window.currentTaprootMode = mode; // Update the global mode
+                console.log('Compiling policy with mode:', mode);
+                // Always pass 'taproot' as the actual context to Rust
+                result = compile_policy_with_mode(processedPolicy, 'taproot', mode);
+            } else {
+                result = compile_policy(processedPolicy, context);
+            }
             
             // Reset button
             compilePolicyBtn.textContent = originalText;
@@ -793,8 +806,9 @@ class MiniscriptCompiler {
                     }
                 }
                 
-                // Show policy success message 
-                this.showPolicySuccess(displayMiniscript, result);
+                // Show policy success message with context (normalize taproot-multi to taproot)
+                const normalizedContext = context === 'taproot-multi' ? 'taproot' : context;
+                this.showPolicySuccess(displayMiniscript, result, normalizedContext);
                 
                 // Check if this is a descriptor validation from policy compilation
                 const isDescriptorValidation = result.miniscript_type === 'Descriptor';
@@ -954,7 +968,7 @@ class MiniscriptCompiler {
         `;
     }
 
-    showPolicySuccess(miniscript, result = null) {
+    showPolicySuccess(miniscript, result = null, context = null) {
         const policyErrorsDiv = document.getElementById('policy-errors');
         
         // Check if we should update existing success message during auto-compile
@@ -962,13 +976,13 @@ class MiniscriptCompiler {
             const existingSuccess = policyErrorsDiv.querySelector('.result-box.success');
             if (existingSuccess) {
                 // Update the content for auto-compile
-                this.updatePolicySuccessContent(existingSuccess, miniscript, result);
+                this.updatePolicySuccessContent(existingSuccess, miniscript, result, context);
                 return; // Don't replace the entire message box
             }
         }
         
         // Normal behavior - create new message
-        const content = this.generatePolicySuccessContent(miniscript, result);
+        const content = this.generatePolicySuccessContent(miniscript, result, context);
         policyErrorsDiv.innerHTML = `
             <div class="result-box success" style="margin: 0; text-align: left;">
                 <h4>✅ Policy compilation successful</h4>
@@ -977,9 +991,9 @@ class MiniscriptCompiler {
         `;
     }
     
-    generatePolicySuccessContent(miniscript, result = null) {
-        // Check if this is a taproot descriptor
-        if (miniscript.startsWith('tr(')) {
+    generatePolicySuccessContent(miniscript, result = null, context = null) {
+        // Check if this is taproot context or a taproot descriptor
+        if (context === 'taproot' || context === 'taproot-multi' || miniscript.startsWith('tr(')) {
             return this.generateTaprootPolicyContent(miniscript, result);
         } else {
             // Standard miniscript display
@@ -1002,69 +1016,46 @@ class MiniscriptCompiler {
         console.log(`=== TAPROOT PARSING DEBUG ===`);
         console.log(`Input descriptor: "${descriptor}"`);
         
-        // Parse using helper function
-        const parsed = this.parseTrDescriptor(descriptor);
-        if (!parsed) {
-            console.error('Taproot parsing failed:', descriptor);
-            return this.generateStandardContent(descriptor);
+        // Parse using helper function if it's a tr() descriptor
+        let internalKey = null;
+        let treeScript = null;
+        
+        if (descriptor.startsWith('tr(')) {
+            const parsed = this.parseTrDescriptor(descriptor);
+            if (parsed) {
+                internalKey = parsed.internalKey;
+                treeScript = parsed.treeScript;
+            }
+        } else {
+            // For non-tr() descriptors in taproot context (single-leaf mode result)
+            // The descriptor itself is the miniscript
+            treeScript = descriptor;
         }
         
-        const { internalKey, treeScript } = parsed;
-        
-        // Check current mode (default to multi-leaf if not set) - define at top level
-        const currentMode = window.currentTaprootMode || 'multi-leaf';
+        // Check current mode based on context
+        const contextRadio = document.querySelector('input[name="context"]:checked');
+        const context = contextRadio ? contextRadio.value : 'segwit';
+        const currentMode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
         
         let content = `
             <div style="margin-top: 10px; text-align: left;">
         `;
         
-        // Only show mode selection if there's a tree script (multiple spending paths)
-        if (treeScript) {
-            
+        // Show different content based on compilation mode
+        if (currentMode === 'single-leaf') {
+            // Single-leaf mode: show the same format as direct miniscript compilation
+            const displayMiniscript = treeScript || `pk(${internalKey})`;
             content += `
-                <div style="margin-bottom: 15px; padding: 10px; background: var(--success-bg); border-radius: 6px; border: 1px solid var(--success-border);">
-                    <div style="margin-bottom: 10px;"><strong>Compilation Mode:</strong></div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="radio" name="taproot-mode" value="single-leaf" ${currentMode === 'single-leaf' ? 'checked' : ''} 
-                                   onchange="window.switchTaprootMode('single-leaf')" 
-                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
-                            <span style="font-size: 13px;"><strong>Miniscript compilation</strong> (single script)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="radio" name="taproot-mode" value="multi-leaf" ${currentMode === 'multi-leaf' ? 'checked' : ''} 
-                                   onchange="window.switchTaprootMode('multi-leaf')" 
-                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
-                            <span style="font-size: 13px;"><strong>Taproot compilation</strong> (multi-leaf TapTree)</span>
-                        </label>
-                    </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Generated Miniscript:</strong><br>
+                    <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${displayMiniscript}</code>
                 </div>
-            `;
-            
-            // Show different content based on compilation mode
-            if (currentMode === 'single-leaf') {
-                // Single-leaf mode: show the same format as direct miniscript compilation
-                const displayMiniscript = treeScript || `pk(${internalKey})`;
-                content += `
-                    <div style="margin-bottom: 15px;">
-                        <strong>Generated Miniscript:</strong><br>
-                        <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${displayMiniscript}</code>
-                    </div>
-                    
-                    <div style="color: var(--text-secondary); font-size: 13px;">
-                        ${displayMiniscript.match(/^\s*\{.*\}\s*$/) ? 
-                            '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot compilation (multi-leaf TapTree) mode to select your miniscript expression.' :
-                            '💡 Check the miniscript below for script hex, ASM, and address details.'
-                        }
-                    </div>
-                </div>`;
-                return content;
-            }
-        } else {
-            // No tree script (key-path only) - no mode selection needed, show simple message
-            content += `
-                <div style="margin-bottom: 15px; color: var(--text-secondary); font-size: 13px;">
-                    💡 This is a key-path only taproot output. Only ${displayInternalKey} can spend using a single signature.
+                
+                <div style="color: var(--text-secondary); font-size: 13px;">
+                    ${displayMiniscript.match(/^\s*\{.*\}\s*$/) ? 
+                        '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot (multi-leaf) in Script context to select your miniscript expression.' :
+                        '💡 Check the miniscript below for script hex, ASM, and address details.'
+                    }
                 </div>
             </div>`;
             return content;
@@ -1350,11 +1341,11 @@ class MiniscriptCompiler {
         return [singleBranch];
     }
     
-    updatePolicySuccessContent(existingSuccess, miniscript, result = null) {
+    updatePolicySuccessContent(existingSuccess, miniscript, result = null, context = null) {
         // Update the content for auto-compile scenarios
         const contentDiv = existingSuccess.querySelector('div[style*="margin-top: 10px"]');
         if (contentDiv) {
-            const newContent = this.generatePolicySuccessContent(miniscript, result);
+            const newContent = this.generatePolicySuccessContent(miniscript, result, context);
             contentDiv.outerHTML = newContent;
         }
     }
@@ -4808,7 +4799,7 @@ class MiniscriptCompiler {
                         const context = document.querySelector('input[name="context"]:checked')?.value;
                         const existingTaprootInfo = existingSuccess.querySelector('.taproot-info');
                         
-                        if (context === 'taproot') {
+                        if (context === 'taproot' || context === 'taproot-multi') {
                             const taprootInfo = this.generateTaprootInfo(expression);
                             if (taprootInfo) {
                                 if (existingTaprootInfo) {
@@ -4870,7 +4861,7 @@ class MiniscriptCompiler {
                 
                 // Generate Taproot info if context is taproot
                 const context = document.querySelector('input[name="context"]:checked')?.value;
-                if (context === 'taproot') {
+                if (context === 'taproot' || context === 'taproot-multi') {
                     taprootInfoHtml = this.generateTaprootInfo(expression);
                 }
             } catch (error) {
@@ -4878,39 +4869,9 @@ class MiniscriptCompiler {
             }
         }
         
-        // Check if this is Taproot context and add mode selection if needed
-        const context = document.querySelector('input[name="context"]:checked')?.value;
-        let modeSelectionHtml = '';
-        
-        if (context === 'taproot' && expression && !expression.startsWith('tr(')) {
-            // Get current mode (default to single-leaf for direct miniscript)
-            const currentMode = window.currentTaprootMode || 'single-leaf';
-            
-            modeSelectionHtml = `
-                <div style="margin-top: 15px; margin-bottom: 15px; padding: 10px; background: var(--success-bg); border-radius: 6px; border: 1px solid var(--success-border);">
-                    <div style="margin-bottom: 10px;"><strong>Compilation Mode:</strong></div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="radio" name="taproot-miniscript-mode" value="single-leaf" ${currentMode === 'single-leaf' ? 'checked' : ''} 
-                                   onchange="window.switchTaprootModeFromMiniscript('single-leaf')" 
-                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
-                            <span style="font-size: 13px;"><strong>Miniscript compilation</strong> (single script)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="radio" name="taproot-miniscript-mode" value="multi-leaf" ${currentMode === 'multi-leaf' ? 'checked' : ''} 
-                                   onchange="window.switchTaprootModeFromMiniscript('multi-leaf')" 
-                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
-                            <span style="font-size: 13px;"><strong>Taproot compilation</strong> (multi-leaf TapTree)</span>
-                        </label>
-                    </div>
-                </div>
-            `;
-        }
-        
         messagesDiv.innerHTML = `
             <div class="result-box success" style="margin: 0;">
                 <h4>✅ Success</h4>
-                ${modeSelectionHtml}
                 <div style="margin-top: 10px; word-wrap: break-word; word-break: break-all; overflow-wrap: break-word; white-space: pre-wrap;">${message}</div>
                 ${treeHtml}
                 ${taprootInfoHtml}
@@ -5920,7 +5881,7 @@ class MiniscriptCompiler {
         }
 
         // Add new policy with context
-        const context = document.querySelector('input[name="context"]:checked').value;
+        const context = document.querySelector('input[name="policy-context"]:checked').value;
         savedPolicies.push({
             name: name,
             expression: policy,
@@ -6113,7 +6074,11 @@ class MiniscriptCompiler {
             // Auto-detect context based on key formats in the policy
             const detectedContext = this.detectContextFromExpression(savedPolicy.expression);
             const context = detectedContext || savedPolicy.context || 'segwit';
-            document.querySelector(`input[name="context"][value="${context}"]`).checked = true;
+            // Set both policy and miniscript context radio buttons
+            const policyRadio = document.querySelector(`input[name="policy-context"][value="${context}"]`);
+            const miniscriptRadio = document.querySelector(`input[name="context"][value="${context}"]`);
+            if (policyRadio) policyRadio.checked = true;
+            if (miniscriptRadio) miniscriptRadio.checked = true;
             
             // Clear previous results
             this.initializeEmptyResults();
@@ -6290,7 +6255,18 @@ window.loadExample = function(example, exampleId) {
     if (window.compiler && window.compiler.detectContextFromExpression) {
         const detectedContext = window.compiler.detectContextFromExpression(example);
         const context = detectedContext || 'segwit';
-        document.querySelector(`input[name="context"][value="${context}"]`).checked = true;
+        console.log(`Loading miniscript example: ${example.substring(0, 30)}... | Detected context: ${context}`);
+        
+        // Set only miniscript context (lower radio buttons)
+        const miniscriptRadio = document.querySelector(`input[name="context"][value="${context}"]`);
+        if (miniscriptRadio) {
+            miniscriptRadio.checked = true;
+            console.log(`✓ Set miniscript context to: ${context}`);
+        } else {
+            console.log(`✗ Could not find miniscript radio for: ${context}`);
+        }
+    } else {
+        console.log('Context detection not available or compiler not ready');
     }
     
     // Reset the "Show key names" checkbox
@@ -6397,7 +6373,26 @@ window.loadPolicyExample = function(example, exampleId) {
     if (window.compiler && window.compiler.detectContextFromExpression) {
         const detectedContext = window.compiler.detectContextFromExpression(example);
         const context = detectedContext || 'segwit';
-        document.querySelector(`input[name="context"][value="${context}"]`).checked = true;
+        console.log(`Loading policy example: ${example.substring(0, 30)}... | Detected context: ${context}`);
+        
+        // Set both policy and miniscript context
+        const policyRadio = document.querySelector(`input[name="policy-context"][value="${context}"]`);
+        if (policyRadio) {
+            policyRadio.checked = true;
+            console.log(`✓ Set policy context to: ${context}`);
+        } else {
+            console.log(`✗ Could not find policy radio for: ${context}`);
+        }
+        
+        const miniscriptRadio = document.querySelector(`input[name="context"][value="${context}"]`);
+        if (miniscriptRadio) {
+            miniscriptRadio.checked = true;
+            console.log(`✓ Set miniscript context to: ${context}`);
+        } else {
+            console.log(`✗ Could not find miniscript radio for: ${context}`);
+        }
+    } else {
+        console.log('Policy context detection not available or compiler not ready');
     }
     
     // Reset the "Show key names" checkbox since we cleared the miniscript
@@ -8319,52 +8314,9 @@ window.toggleMiniscriptDescription = function() {
     }
 };
 
-// Taproot Mode Switching from Miniscript
-window.switchTaprootModeFromMiniscript = function(mode) {
-    console.log(`Switching to taproot mode from miniscript: ${mode}`);
-    
-    // Update radio button states
-    const radioButtons = document.querySelectorAll('input[name="taproot-miniscript-mode"]');
-    radioButtons.forEach(radio => {
-        if (radio.value === mode) {
-            radio.checked = true;
-        }
-    });
-    
-    // Store the selected mode globally
-    window.currentTaprootMode = mode;
-    
-    // Re-compile the current miniscript with the new mode
-    if (window.compiler) {
-        window.compiler.compileExpression();
-    }
-};
+// Taproot Mode Switching from Miniscript - REMOVED: Mode selection now handled by Script context radio buttons
 
-// Taproot Mode Switching from Policy
-window.switchTaprootMode = function(mode) {
-    console.log(`Switching to taproot mode: ${mode}`);
-    
-    // Update radio button states (they handle themselves, but ensure consistency)
-    const radioButtons = document.querySelectorAll('input[name="taproot-mode"]');
-    radioButtons.forEach(radio => {
-        if (radio.value === mode) {
-            radio.checked = true;
-        }
-    });
-    
-    // Store the selected mode globally
-    window.currentTaprootMode = mode;
-    
-    // Re-compile the current policy with the new mode
-    const policyInput = document.getElementById('policy-input');
-    if (policyInput && policyInput.textContent && policyInput.textContent.trim()) {
-        // Need to add flag to Rust compilation
-        console.log(`Re-compiling policy with ${mode} mode`);
-        window.compiler.compilePolicy();
-    } else {
-        console.log('No policy to re-compile or policy input is empty');
-    }
-};
+// Taproot Mode Switching from Policy - REMOVED: Mode selection now handled by Script context radio buttons
 
 // Branch Loading for Taproot Multi-leaf
 window.loadBranchMiniscript = function(miniscript) {
@@ -8447,5 +8399,31 @@ document.addEventListener('DOMContentLoaded', function() {
             localStorage.setItem('hideCornerButtons', hide);
             updateCornerButtonsVisibility(hide);
         });
+    }
+    
+    // Synchronize policy context to miniscript context (unidirectional)
+    const policyContextRadios = document.querySelectorAll('input[name="policy-context"]');
+    const miniscriptContextRadios = document.querySelectorAll('input[name="context"]');
+    
+    // Function to sync policy context changes to miniscript context
+    function syncPolicyToMiniscriptContext() {
+        policyContextRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.checked) {
+                    console.log(`Policy context changed: ${this.value} → syncing to miniscript context`);
+                    miniscriptContextRadios.forEach(targetRadio => {
+                        if (targetRadio.value === this.value) {
+                            targetRadio.checked = true;
+                        }
+                    });
+                }
+            });
+        });
+    }
+    
+    // Set up unidirectional synchronization (policy → miniscript only)
+    if (policyContextRadios.length > 0 && miniscriptContextRadios.length > 0) {
+        syncPolicyToMiniscriptContext();
+        console.log('Unidirectional context synchronization initialized (policy → miniscript)');
     }
 });
