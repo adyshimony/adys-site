@@ -148,6 +148,7 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 /**
+ * Compile a policy expression to miniscript
  * @param {string} policy
  * @param {string} context
  * @returns {any}
@@ -162,6 +163,7 @@ export function compile_policy(policy, context) {
 }
 
 /**
+ * Compile a miniscript expression to Bitcoin script
  * @param {string} expression
  * @param {string} context
  * @returns {any}
@@ -176,6 +178,25 @@ export function compile_miniscript(expression, context) {
 }
 
 /**
+ * Compile a miniscript expression to Bitcoin script with compilation mode
+ * @param {string} expression
+ * @param {string} context
+ * @param {string} mode
+ * @returns {any}
+ */
+export function compile_miniscript_with_mode(expression, context, mode) {
+    const ptr0 = passStringToWasm0(expression, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(context, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.compile_miniscript_with_mode(ptr0, len0, ptr1, len1, ptr2, len2);
+    return ret;
+}
+
+/**
+ * Lift a Bitcoin script to miniscript
  * @param {string} bitcoin_script
  * @returns {any}
  */
@@ -187,6 +208,7 @@ export function lift_to_miniscript(bitcoin_script) {
 }
 
 /**
+ * Lift a miniscript to policy
  * @param {string} miniscript
  * @returns {any}
  */
@@ -198,6 +220,7 @@ export function lift_to_policy(miniscript) {
 }
 
 /**
+ * Generate address for a specific network
  * @param {string} script_hex
  * @param {string} script_type
  * @param {string} network
@@ -214,8 +237,46 @@ export function generate_address_for_network(script_hex, script_type, network) {
     return ret;
 }
 
-export function main() {
-    wasm.main();
+/**
+ * Generate taproot address for a specific network with miniscript
+ * @param {string} miniscript
+ * @param {string} network_str
+ * @returns {any}
+ */
+export function generate_taproot_address_for_network(miniscript, network_str) {
+    const ptr0 = passStringToWasm0(miniscript, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(network_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.generate_taproot_address_for_network(ptr0, len0, ptr1, len1);
+    return ret;
+}
+
+/**
+ * Generate taproot address using TaprootBuilder (matches compilation logic)
+ * @param {string} miniscript
+ * @param {string} network_str
+ * @returns {any}
+ */
+export function generate_taproot_address_with_builder(miniscript, network_str) {
+    const ptr0 = passStringToWasm0(miniscript, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(network_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.generate_taproot_address_with_builder(ptr0, len0, ptr1, len1);
+    return ret;
+}
+
+/**
+ * Extract taproot tree leaves from a miniscript expression
+ * @param {string} expression
+ * @returns {any}
+ */
+export function get_taproot_leaves(expression) {
+    const ptr0 = passStringToWasm0(expression, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.get_taproot_leaves(ptr0, len0);
+    return ret;
 }
 
 async function __wbg_load(module, imports) {
@@ -258,6 +319,13 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_new_405e22f390576ce2 = function() {
         const ret = new Object();
         return ret;
+    };
+    imports.wbg.__wbg_new_78feb108b6472713 = function() {
+        const ret = new Array();
+        return ret;
+    };
+    imports.wbg.__wbg_set_37837023f3d740e8 = function(arg0, arg1, arg2) {
+        arg0[arg1 >>> 0] = arg2;
     };
     imports.wbg.__wbg_set_3fda3bac07393de4 = function(arg0, arg1, arg2) {
         arg0[arg1] = arg2;

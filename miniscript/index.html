@@ -633,9 +633,9 @@
                 margin-bottom: 20px;
             }
             
-            /* Mobile: Compile/Save/Clear buttons in horizontal line */
-            #compile-policy-btn, #save-policy-btn, #clear-policy-btn,
-            #compile-btn, #save-btn, #clear-btn {
+            /* Mobile: Compile/Save/Load/Clear buttons in horizontal line */
+            #compile-policy-btn, #save-policy-btn, #load-policy-btn, #clear-policy-btn,
+            #compile-btn, #save-btn, #load-btn, #clear-btn {
                 font-size: 13px !important;
                 padding: 10px 12px !important;
             }
@@ -999,6 +999,7 @@
                 <div class="button-group">
                     <button id="compile-policy-btn" class="primary-btn">🔨 Compile</button>
                     <button id="save-policy-btn" class="secondary-btn">💾 Save</button>
+                    <button id="load-policy-btn" class="secondary-btn">📂 Load</button>
                     <button id="clear-policy-btn" class="secondary-btn">🗑️ Clear</button>
                 </div>
                 <div class="auto-compile-container" style="display: flex; align-items: center; gap: 8px;">
@@ -1033,6 +1034,7 @@
                         <button onclick="showPolicyDescription('twofa'); loadPolicyExample('and(pk(Alice),or(and(pk(Bob),hash160(6c60f404f8167a38fc70eaf8aa17ac351023bef8)),older(52560)))', 'twofa')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">2FA + Backup</button>
                         <button onclick="showPolicyDescription('hodl'); loadPolicyExample('or(9@pk(Alice),and(thresh(3,pk(Bob),pk(Charlie),pk(Eva),pk(Frank)),older(52560)))', 'hodl')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">HODL Wallet</button>
                         <button onclick="showPolicyDescription('timelocked_thresh'); loadPolicyExample('and(thresh(2,pk(Alice),pk(Bob),pk(Charlie)),after(1767225600))', 'timelocked_thresh')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelocked Multisig</button>
+                        <button onclick="showPolicyDescription('multi_branch'); loadPolicyExample('or(pk(David),or(pk(Helen),pk(Uma)))', 'multi_branch')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Multi-Branch OR</button>
                     </div>
                 </div>
                 <div class="policy-description-panel" style="flex: 0 0 300px; width: 300px; background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: none; overflow-wrap: break-word; word-wrap: break-word;" id="policy-description">
@@ -1089,6 +1091,7 @@
                 <div class="button-group">
                     <button id="compile-btn" class="primary-btn">🔨 Compile</button>
                     <button id="save-btn" class="secondary-btn">💾 Save</button>
+                    <button id="load-btn" class="secondary-btn">📂 Load</button>
                     <button id="clear-btn" class="secondary-btn">🗑️ Clear</button>
                 </div>
                 <div class="auto-compile-container" style="display: flex; align-items: center; gap: 8px;">
@@ -1111,7 +1114,7 @@
                         <button onclick="showMiniscriptDescription('pkh'); loadExample('pkh(Alice)', 'pkh')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Pay-to-pubkey-hash</button>
                         <button onclick="showMiniscriptDescription('wrap'); loadExample('c:pk_k(Alice)', 'wrap')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Wrapped key</button>
                         <button onclick="showMiniscriptDescription('or_i'); loadExample('or_i(pk(Alice),pk(Bob))', 'or_i')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">OR with if-else</button>
-                        <button onclick="showMiniscriptDescription('complex'); loadExample('and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie)))', 'complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Complex: Alice AND (Bob OR Charlie)</button>
+                        <button onclick="showMiniscriptDescription('complex'); loadExample('and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie)))', 'complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Alice AND (Bob OR Charlie)</button>
                         <button onclick="showMiniscriptDescription('timelock'); loadExample('and_v(v:pk(Alice),and_v(v:older(144),pk(Bob)))', 'timelock')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Timelock: Alice AND (1 day + Bob)</button>
                         <button onclick="showMiniscriptDescription('after'); loadExample('and_v(v:pk(Alice),after(1767225600))', 'after')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Absolute timelock</button>
                     </div>
@@ -1128,7 +1131,8 @@
                         <button onclick="showMiniscriptDescription('liana_wallet'); loadExample('or_i(and_v(v:thresh(1,pkh(LianaDesc1),a:pkh(LianaDesc2),a:pkh(LianaDesc3)),older(20)),or_i(and_v(v:pkh(LianaDesc4),older(19)),or_d(multi(2,LianaDesc5,LianaDesc6),and_v(v:pkh(LianaDesc7),older(18)))))', 'liana_wallet')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🦎 Liana Wallet</button>
                         <button onclick="showMiniscriptDescription('full_descriptor'); loadExample('pk(MainnetKey)', 'full_descriptor')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Full xpub descriptor</button>
                         <button onclick="showMiniscriptDescription('range_descriptor'); loadExample('pk(RangeKey)', 'range_descriptor')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">Multipath range <1;0>/*</button>
-                        <button onclick="showMiniscriptDescription('vault_complex'); loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(TestnetKey)),after(1768435200)),and_v(or_c(pkh(VaultKey2),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey),a:pkh(VaultKey1))),after(1767830400))),and_v(or_c(pkh(VaultKey4),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey))),after(1767484800))),and_v(or_c(pkh(VaultKey3),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2))),after(1767312000))),and_v(v:pk(VaultKey3),pk(VaultKey4)))', 'vault_complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🏦 Complex Vault</button>
+                        <button onclick="showMiniscriptDescription('vault_complex'); loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(VaultKey4)),after(1753305229)),and_v(or_c(pkh(VaultKey6),v:thresh(2,pkh(VaultKey10),a:pkh(VaultKey15),a:pkh(VaultKey7),a:pkh(VaultKey2),a:pkh(VaultKey5))),after(1753298029))),and_v(or_c(pkh(VaultKey16),v:thresh(2,pkh(VaultKey11),a:pkh(VaultKey17),a:pkh(VaultKey8),a:pkh(VaultKey3))),after(1753290829))),and_v(or_c(pkh(VaultKey12),v:thresh(2,pkh(VaultKey13),a:pkh(VaultKey18),a:pkh(VaultKey9))),after(1753283629))),and_v(v:pk(VaultKey14),pk(VaultKey19)))', 'vault_complex')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🏦 Complex Vault</button>
+                        <button onclick="showMiniscriptDescription('taproot_multibranch'); loadExample('or_d(pk(Julia),and_v(v:pk(Karl),older(144)))', 'taproot_multibranch')" class="secondary-btn" style="font-size: 12px; padding: 6px 12px;">🌳 Taproot Multi-Branch</button>
                     </div>
                 </div>
                 <div class="miniscript-description-panel" style="flex: 0 0 300px; width: 300px; background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: none; overflow-wrap: break-word; word-wrap: break-word;" id="miniscript-description">
@@ -2294,7 +2298,7 @@
                     technical: '💡 s: wrapper swaps stack elements for proper evaluation'
                 },
                 'complex': {
-                    title: '⚙️ Complex AND/OR: Why and_v + or_b + Wrappers',
+                    title: '⚙️ AND/OR: Why and_v + or_b + Wrappers',
                     structure: 'and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie))) → Alice AND (Bob OR Charlie)',
                     bitcoinScript: '<Alice> CHECKSIGVERIFY <Bob> CHECKSIG SWAP <Charlie> CHECKSIG BOOLOR',
                     useCase: 'Alice must always sign, plus either Bob or Charlie. Demonstrates wrapper logic: v: for VERIFY, s: for stack SWAP.',

@@ -1,4 +1,4 @@
-import init, { compile_miniscript, compile_policy, lift_to_miniscript, lift_to_policy, generate_address_for_network } from './pkg/miniscript_wasm.js';
+import init, { compile_miniscript, compile_miniscript_with_mode, compile_policy, lift_to_miniscript, lift_to_policy, generate_address_for_network, generate_taproot_address_for_network, generate_taproot_address_with_builder, get_taproot_leaves } from './pkg/miniscript_wasm.js';
 // Cache buster - updated 2025-01-18 v3
 
 class MiniscriptCompiler {
@@ -70,9 +70,19 @@ class MiniscriptCompiler {
             this.showSavePolicyModal();
         });
 
+        // Load policy button
+        document.getElementById('load-policy-btn').addEventListener('click', () => {
+            this.showSavedPoliciesModal();
+        });
+
         // Save button
         document.getElementById('save-btn').addEventListener('click', () => {
             this.showSaveModal();
+        });
+
+        // Load miniscript button
+        document.getElementById('load-btn').addEventListener('click', () => {
+            this.showSavedMiniscriptsModal();
         });
 
         // Clear button
@@ -494,14 +504,27 @@ class MiniscriptCompiler {
             const cleanedExpression = this.cleanExpression(expression);
             const processedExpression = this.replaceKeyVariables(cleanedExpression, context);
             
-            // Call the WASM function with context
-            const result = compile_miniscript(processedExpression, context);
+            // Call the WASM function with context and mode
+            let result;
+            if (context === 'taproot') {
+                const currentMode = window.currentTaprootMode || 'single-leaf';
+                console.log(`Compiling miniscript in taproot context, mode: ${currentMode}`);
+                result = compile_miniscript_with_mode(processedExpression, context, currentMode);
+                if (result.success) {
+                    result.taprootMode = currentMode;
+                }
+            } else {
+                // Non-taproot contexts: use regular compilation
+                result = compile_miniscript(processedExpression, context);
+            }
             
             // Reset button
             compileBtn.textContent = originalText;
             compileBtn.disabled = false;
 
             if (result.success) {
+                // Add the processed expression (with actual keys) for taproot network switching
+                result.processedMiniscript = processedExpression;
                 // Update the input display to show cleaned expression and reset format button
                 const expressionInput = document.getElementById('expression-input');
                 const formatButton = document.getElementById('format-miniscript-btn');
@@ -543,16 +566,15 @@ class MiniscriptCompiler {
                 
                 let successMsg = '';
                 if (isDescriptorValidation && result.compiled_miniscript) {
-                    // For descriptor validation, show the validation message
-                    successMsg = result.compiled_miniscript;
+                    // For descriptor validation, build the message using original expression from editor
+                    successMsg = `Valid descriptor: wsh(${expression})`;
                 } else {
                     successMsg = `Compilation successful - ${result.miniscript_type}, ${result.script_size} bytes<br>`;
                     
-                    if (result.max_weight_to_satisfy) {
-                        // Use ONLY what the library returns - no custom calculations
+                    if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         const scriptWeight = result.script_size;
-                        const totalWeight = result.max_weight_to_satisfy;
-                        const inputWeight = totalWeight - scriptWeight; // Library total minus script size
+                        const inputWeight = result.max_satisfaction_size; // Use satisfaction size for input weight
+                        const totalWeight = scriptWeight + inputWeight; // Calculate total as script + input
                         
                         successMsg += `Script: ${scriptWeight} WU<br>`;
                         successMsg += `Input: ${inputWeight}.000000 WU<br>`;
@@ -574,26 +596,37 @@ class MiniscriptCompiler {
                         // Create simplified version with key names (same as script field)
                         const simplifiedAsm = this.simplifyAsm(result.script_asm);
                         let finalAsm = simplifiedAsm;
-                        if (this.keyVariables.size > 0) {
+                        // Only replace keys with names if toggle is active
+                        const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                        if (showKeyNames && this.keyVariables.size > 0) {
                             finalAsm = this.replaceKeysWithNames(simplifiedAsm);
                         }
                         successMsg += `ASM:<br>${finalAsm}<br><br>`;
                     }
                     if (result.address) {
                         successMsg += `Address:<br>${result.address}`;
+                        
+                        // Add Taproot descriptor for Taproot context in multi-leaf mode only
+                        if (result.miniscript_type === 'Taproot' && result.compiled_miniscript) {
+                            const currentMode = window.currentTaprootMode || 'single-leaf';
+                            if (currentMode === 'multi-leaf') {
+                                let cleanDescriptor = result.compiled_miniscript.trim();
+                                // Replace keys with names if toggle is active
+                                const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                                if (showKeyNames && this.keyVariables.size > 0) {
+                                    cleanDescriptor = this.replaceKeysWithNames(cleanDescriptor);
+                                }
+                                successMsg += `<br><br>Taproot descriptor:<br>${cleanDescriptor}`;
+                            }
+                        }
                     }
                 }
                 
                 // Skip problematic metrics for now - they show false warnings
                 // TODO: Fix sanity_check and is_non_malleable implementation
                 
-                // Pass the normalized miniscript for tree visualization (if available)
-                // Skip tree for descriptor validation
-                let treeExpression = null;
-                if (!isDescriptorValidation) {
-                    // Use original expression for tree to preserve key names and descriptors
-                    treeExpression = expression;
-                }
+                // Pass the original expression for tree visualization
+                let treeExpression = expression;
                 
                 this.showMiniscriptSuccess(successMsg, treeExpression);
                 // Display results (without the info box since we show it in the success message)
@@ -682,7 +715,54 @@ class MiniscriptCompiler {
                     displayMiniscript = this.replaceKeysWithNames(result.compiled_miniscript);
                 }
                 
-                expressionInput.textContent = displayMiniscript;
+                // For tr() descriptors, extract only the miniscript part for the editor
+                let editorMiniscript = displayMiniscript;
+                if (displayMiniscript && displayMiniscript.startsWith('tr(')) {
+                    const parsed = this.parseTrDescriptor(displayMiniscript);
+                    if (parsed && parsed.treeScript) {
+                        editorMiniscript = parsed.treeScript;
+                        console.log('Extracted miniscript from tr() descriptor for editor:', editorMiniscript);
+                    }
+                }
+                
+                // Check if result is in JSON-like policy format with curly braces like {pk(Helen),pk(Uma)}
+                // If so, don't load it into the miniscript editor and clear everything
+                const isPolicyResult = editorMiniscript && editorMiniscript.match(/^\s*\{.*\}\s*$/);
+                
+                if (!isPolicyResult) {
+                    expressionInput.textContent = editorMiniscript;
+                } else {
+                    console.log('Policy compilation returned multiple miniscripts, clearing miniscript editor:', editorMiniscript);
+                    // Clear the miniscript editor
+                    expressionInput.textContent = '';
+                    
+                    // Clear hex and ASM fields
+                    const scriptHexDisplay = document.getElementById('script-hex-display');
+                    const scriptAsmDisplay = document.getElementById('script-asm-display');
+                    if (scriptHexDisplay) {
+                        scriptHexDisplay.value = '';
+                        scriptHexDisplay.placeholder = 'Hex script will appear here after compilation, or paste your own and lift it...';
+                    }
+                    if (scriptAsmDisplay) {
+                        scriptAsmDisplay.value = '';
+                        scriptAsmDisplay.placeholder = 'ASM script will appear here after compilation, or paste your own and lift it...';
+                    }
+                    
+                    // Clear the address field
+                    const addressField = document.getElementById('address');
+                    if (addressField) {
+                        addressField.textContent = '';
+                    }
+                    
+                    // Clear taproot descriptor if visible
+                    const taprootDescriptor = document.getElementById('taproot-descriptor');
+                    if (taprootDescriptor) {
+                        taprootDescriptor.style.display = 'none';
+                    }
+                    
+                    // Clear miniscript success/error messages
+                    this.clearMiniscriptMessages();
+                }
                 
                 // Reset format button state since compiled miniscript is always clean/unformatted
                 formatButton.style.color = 'var(--text-secondary)';
@@ -714,24 +794,25 @@ class MiniscriptCompiler {
                 }
                 
                 // Show policy success message 
-                this.showPolicySuccess(displayMiniscript);
+                this.showPolicySuccess(displayMiniscript, result);
                 
                 // Check if this is a descriptor validation from policy compilation
                 const isDescriptorValidation = result.miniscript_type === 'Descriptor';
                 
                 let successMsg = '';
                 if (isDescriptorValidation && result.script && result.script.startsWith('Valid descriptor:')) {
-                    // For descriptor validation from policy, show the validation message from script field
-                    successMsg = result.script;
+                    // For descriptor validation from policy, build the message using compiled miniscript from editor
+                    successMsg = `Valid descriptor: wsh(${displayMiniscript})`;
+                    // Fix the script field for results display - should show "No single script..." not validation message
+                    result.script = "No single script - this descriptor defines multiple paths";
                 } else {
                     // Show normal compilation success message with spending cost analysis format
                     successMsg = `Compilation successful - ${result.miniscript_type}, ${result.script_size} bytes<br>`;
                     
-                    if (result.max_weight_to_satisfy) {
-                        // Use ONLY what the library returns - no custom calculations
+                    if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         const scriptWeight = result.script_size;
-                        const totalWeight = result.max_weight_to_satisfy;
-                        const inputWeight = totalWeight - scriptWeight; // Library total minus script size
+                        const inputWeight = result.max_satisfaction_size; // Use satisfaction size for input weight
+                        const totalWeight = scriptWeight + inputWeight; // Calculate total as script + input
                         
                         successMsg += `Script: ${scriptWeight} WU<br>`;
                         successMsg += `Input: ${inputWeight}.000000 WU<br>`;
@@ -753,7 +834,9 @@ class MiniscriptCompiler {
                         // Create simplified version with key names (same as script field)
                         const simplifiedAsm = this.simplifyAsm(result.script_asm);
                         let finalAsm = simplifiedAsm;
-                        if (this.keyVariables.size > 0) {
+                        // Only replace keys with names if toggle is active
+                        const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                        if (showKeyNames && this.keyVariables.size > 0) {
                             finalAsm = this.replaceKeysWithNames(simplifiedAsm);
                         }
                         successMsg += `ASM:<br>${finalAsm}<br><br>`;
@@ -763,18 +846,22 @@ class MiniscriptCompiler {
                     }
                 }
                 
-                // Pass the compiled miniscript expression for tree visualization
-                // Skip tree for descriptor validation (same as direct miniscript compilation)
-                let treeExpression = null;
-                if (!isDescriptorValidation) {
-                    treeExpression = displayMiniscript;
-                }
-                this.showMiniscriptSuccess(successMsg, treeExpression);
+                // Store the compiled miniscript (with actual keys) for network switching
+                result.processedMiniscript = result.compiled_miniscript;
                 
-                // Don't display the compiled_miniscript in results since it's now in the text box
-                result.compiled_miniscript = null;
-                // Display results (script, asm, address)
-                this.displayResults(result);
+                // Only show miniscript success and auto-compile if we actually loaded a miniscript into the editor
+                if (!isPolicyResult) {
+                    // Pass the compiled miniscript expression for tree visualization
+                    let treeExpression = displayMiniscript;
+                    this.showMiniscriptSuccess(successMsg, treeExpression);
+                    
+                    // After putting miniscript in editor, compile it fresh with current mode
+                    // This ensures proper mode handling (single-leaf vs multi-leaf)
+                    this.compileExpression();
+                } else {
+                    // Clear/hide miniscript messages when policy returns policy result
+                    this.clearMiniscriptMessages();
+                }
             } else {
                 // Error: show policy-specific error
                 this.showPolicyError(result.error || 'Policy compilation failed');
@@ -794,6 +881,9 @@ class MiniscriptCompiler {
     clearPolicy() {
         document.getElementById('policy-input').innerHTML = '';
         this.clearPolicyErrors();
+        
+        // Reset taproot mode to default
+        window.currentTaprootMode = 'single-leaf';
         
         // Hide policy description panel
         const policyPanel = document.querySelector('.policy-description-panel');
@@ -829,7 +919,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, etc.) with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -847,7 +937,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, etc.) with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -864,35 +954,409 @@ class MiniscriptCompiler {
         `;
     }
 
-    showPolicySuccess(miniscript) {
+    showPolicySuccess(miniscript, result = null) {
         const policyErrorsDiv = document.getElementById('policy-errors');
         
         // Check if we should update existing success message during auto-compile
         if (this.isAutoCompiling) {
             const existingSuccess = policyErrorsDiv.querySelector('.result-box.success');
             if (existingSuccess) {
-                // Update just the miniscript code content
-                const codeBlock = existingSuccess.querySelector('code');
-                if (codeBlock) {
-                    codeBlock.textContent = miniscript;
-                }
+                // Update the content for auto-compile
+                this.updatePolicySuccessContent(existingSuccess, miniscript, result);
                 return; // Don't replace the entire message box
             }
         }
         
         // Normal behavior - create new message
+        const content = this.generatePolicySuccessContent(miniscript, result);
         policyErrorsDiv.innerHTML = `
             <div class="result-box success" style="margin: 0; text-align: left;">
                 <h4>✅ Policy compilation successful</h4>
+                ${content}
+            </div>
+        `;
+    }
+    
+    generatePolicySuccessContent(miniscript, result = null) {
+        // Check if this is a taproot descriptor
+        if (miniscript.startsWith('tr(')) {
+            return this.generateTaprootPolicyContent(miniscript, result);
+        } else {
+            // Standard miniscript display
+            return `
                 <div style="margin-top: 10px; text-align: left;">
                     <strong>Generated Miniscript:</strong><br>
                     <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${miniscript}</code>
                     <div style="color: var(--text-secondary); font-size: 13px; margin-top: 10px;">
-                        💡 Check the miniscript below for script hex, ASM, and address details.
+                        ${miniscript.match(/^\s*\{.*\}\s*$/) ? 
+                            '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot compilation (multi-leaf TapTree) mode to select your miniscript expression.' :
+                            '💡 Check the miniscript below for script hex, ASM, and address details.'
+                        }
                     </div>
                 </div>
-            </div>
+            `;
+        }
+    }
+    
+    generateTaprootPolicyContent(descriptor, result = null) {
+        console.log(`=== TAPROOT PARSING DEBUG ===`);
+        console.log(`Input descriptor: "${descriptor}"`);
+        
+        // Parse using helper function
+        const parsed = this.parseTrDescriptor(descriptor);
+        if (!parsed) {
+            console.error('Taproot parsing failed:', descriptor);
+            return this.generateStandardContent(descriptor);
+        }
+        
+        const { internalKey, treeScript } = parsed;
+        
+        // Check current mode (default to multi-leaf if not set) - define at top level
+        const currentMode = window.currentTaprootMode || 'multi-leaf';
+        
+        let content = `
+            <div style="margin-top: 10px; text-align: left;">
         `;
+        
+        // Only show mode selection if there's a tree script (multiple spending paths)
+        if (treeScript) {
+            
+            content += `
+                <div style="margin-bottom: 15px; padding: 10px; background: var(--success-bg); border-radius: 6px; border: 1px solid var(--success-border);">
+                    <div style="margin-bottom: 10px;"><strong>Compilation Mode:</strong></div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="taproot-mode" value="single-leaf" ${currentMode === 'single-leaf' ? 'checked' : ''} 
+                                   onchange="window.switchTaprootMode('single-leaf')" 
+                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
+                            <span style="font-size: 13px;"><strong>Miniscript compilation</strong> (single script)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="taproot-mode" value="multi-leaf" ${currentMode === 'multi-leaf' ? 'checked' : ''} 
+                                   onchange="window.switchTaprootMode('multi-leaf')" 
+                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
+                            <span style="font-size: 13px;"><strong>Taproot compilation</strong> (multi-leaf TapTree)</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+            
+            // Show different content based on compilation mode
+            if (currentMode === 'single-leaf') {
+                // Single-leaf mode: show the same format as direct miniscript compilation
+                const displayMiniscript = treeScript || `pk(${internalKey})`;
+                content += `
+                    <div style="margin-bottom: 15px;">
+                        <strong>Generated Miniscript:</strong><br>
+                        <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${displayMiniscript}</code>
+                    </div>
+                    
+                    <div style="color: var(--text-secondary); font-size: 13px;">
+                        ${displayMiniscript.match(/^\s*\{.*\}\s*$/) ? 
+                            '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot compilation (multi-leaf TapTree) mode to select your miniscript expression.' :
+                            '💡 Check the miniscript below for script hex, ASM, and address details.'
+                        }
+                    </div>
+                </div>`;
+                return content;
+            }
+        } else {
+            // No tree script (key-path only) - no mode selection needed, show simple message
+            content += `
+                <div style="margin-bottom: 15px; color: var(--text-secondary); font-size: 13px;">
+                    💡 This is a key-path only taproot output. Only ${displayInternalKey} can spend using a single signature.
+                </div>
+            </div>`;
+            return content;
+        }
+        
+        // Multi-leaf mode: full taproot information
+        content += `
+                <div style="margin-bottom: 15px;">
+                    <strong>Descriptor:</strong><br>
+                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
+                        ${descriptor}
+                    </div>
+                </div>`;
+        
+        // Add weight information if available from compilation result
+        if (result) {
+            if (result.script_size && result.max_weight_to_satisfy) {
+                const scriptWeight = result.script_size;
+                const totalWeight = result.max_weight_to_satisfy;
+                const inputWeight = totalWeight - scriptWeight;
+                
+                content += `
+                <div style="margin-bottom: 15px;">
+                    <strong>Weight Information:</strong><br>
+                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
+                        Script: ${scriptWeight} WU<br>
+                        Input: ${inputWeight}.000000 WU<br>
+                        Total: ${totalWeight}.000000 WU
+                    </div>
+                </div>`;
+            } else if (result.max_satisfaction_size) {
+                content += `
+                <div style="margin-bottom: 15px;">
+                    <strong>Weight Information:</strong><br>
+                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
+                        Input: ${result.max_satisfaction_size}.000000 WU<br>
+                        Total: ${result.script_size + result.max_satisfaction_size}.000000 WU
+                    </div>
+                </div>`;
+            }
+        }
+        
+        // Check if we should show key names or raw keys
+        const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+        let displayInternalKey = internalKey;
+        if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
+            displayInternalKey = this.replaceKeysWithNames(internalKey);
+        }
+        
+        content += `
+                <div style="margin-bottom: 15px;">
+                    <strong>Taproot Structure:</strong><br>
+                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
+                        • Internal Key: ${displayInternalKey} (key-path spending)
+        `;
+        
+        if (treeScript) {
+            // Parse the tree to show branches
+            const branches = this.parseTaprootBranches(treeScript);
+            content += `<br>        • Script Tree: ${branches.length} branch${branches.length !== 1 ? 'es' : ''} (script-path spending)`;
+            content += `</div></div>`;
+            
+            // Handle auto-load behavior for single branches in multi-leaf mode
+            if (branches.length === 1) {
+                let cleanMiniscript;
+                
+                // Single branch case in multi-leaf mode
+                cleanMiniscript = branches[0]; 
+                console.log(`🔍 SINGLE BRANCH MODE - Using branch[0]: "${cleanMiniscript}"`);
+                
+                // Remove any tr() wrapper if it exists using helper function
+                if (cleanMiniscript && cleanMiniscript.startsWith('tr(')) {
+                    console.log(`Attempting to parse tr() descriptor...`);
+                    const parsed = this.parseTrDescriptor(cleanMiniscript);
+                    console.log(`Parse result:`, parsed);
+                    if (parsed && parsed.treeScript) {
+                        cleanMiniscript = parsed.treeScript;
+                        console.log(`✅ Extracted from full tr(): "${cleanMiniscript}"`);
+                    } else {
+                        console.log(`❌ Failed to extract from tr() descriptor`);
+                    }
+                }
+                
+                console.log(`🎯 Final clean miniscript that will be loaded: "${cleanMiniscript}"`);
+                console.log(`Final miniscript length: ${cleanMiniscript.length}`);
+                
+                // Auto-load into miniscript editor and compile
+                setTimeout(() => {
+                    const miniscriptInput = document.getElementById('expression-input');
+                    if (miniscriptInput) {
+                        console.log(`📝 Loading into editor: "${cleanMiniscript}"`);
+                        miniscriptInput.textContent = cleanMiniscript;
+                        console.log(`📋 Editor textContent after setting: "${miniscriptInput.textContent}"`);
+                        window.compiler.highlightMiniscriptSyntax(true);
+                        console.log(`🚀 About to compile expression...`);
+                        window.compiler.compileExpression();
+                    } else {
+                        console.log(`❌ Could not find miniscript input element`);
+                    }
+                }, 100);
+                
+                // Show simplified single-branch message
+                content += `
+                    <div style="margin-bottom: 15px; padding: 10px; border: 1px solid var(--success-border); border-radius: 4px; background: var(--success-bg);">
+                        <strong>✓ Single Branch Auto-loaded</strong><br>
+                        <div style="margin: 8px 0; font-size: 13px;">
+                            The miniscript: <code style="font-family: monospace; background: var(--success-bg); padding: 2px 4px; border-radius: 2px;">${branches[0]}</code> has been automatically loaded into the editor and compiled.
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Multiple branches - clear everything and show branch selection
+                console.log(`Multiple branches detected (${branches.length}), clearing editors`);
+                setTimeout(() => {
+                    this.clearAllEditors();
+                }, 100);
+                
+                // Add branch details with clickable names
+                branches.forEach((branch, index) => {
+                    // Replace key names if available and toggle is active
+                    let displayMiniscript = branch;
+                    if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
+                        displayMiniscript = this.replaceKeysWithNames(branch);
+                    }
+                    
+                    content += `
+                    <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                        <strong>Branch:</strong> ${index + 1}<br>
+                        <strong>Miniscript:</strong> 
+                        <a href="#" onclick="window.loadBranchMiniscript('${branch.replace(/'/g, "\\'")}')" 
+                           style="color: var(--accent-color); text-decoration: underline; font-family: monospace; font-size: 13px;">
+                           ${displayMiniscript}
+                        </a>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                            💡 Click the miniscript above to load it into the editor
+                        </div>
+                    </div>
+                    `;
+                });
+                
+                content += `
+                    <div style="color: var(--text-secondary); font-size: 13px; margin-top: 15px;">
+                        💡 This creates an optimized taproot output where ${displayInternalKey} can spend directly with just a signature, while other parties require revealing only their specific branch script.
+                    </div>
+                `;
+            }
+        } else {
+            // No tree script (key-path only) - no mode selection needed, show simple message
+            content += `
+                <div style="margin-bottom: 15px; color: var(--text-secondary); font-size: 13px;">
+                    💡 This is a key-path only taproot output. Only ${displayInternalKey} can spend using a single signature.
+                </div>
+            </div>`;
+            return content;
+        }
+        
+        content += `</div>`;
+        return content;
+    }
+    
+    getKeyTooltip(keyName) {
+        // Get the actual key value for tooltip display
+        if (this.keyVariables && this.keyVariables.has(keyName)) {
+            const keyValue = this.keyVariables.get(keyName);
+            return `${keyName}: ${keyValue.slice(0, 16)}...${keyValue.slice(-8)}`;
+        }
+        return `Variable: ${keyName} (hover to see full key when available)`;
+    }
+    
+    parseTrDescriptor(descriptor) {
+        // Helper function to parse tr() descriptors with proper parentheses handling
+        console.log(`Parsing tr() descriptor: ${descriptor}`);
+        
+        // Remove checksum first if present
+        let cleanDescriptor = descriptor;
+        const checksumMatch = descriptor.match(/#[a-zA-Z0-9]+$/);
+        if (checksumMatch) {
+            cleanDescriptor = descriptor.replace(/#[a-zA-Z0-9]+$/, '');
+        }
+        
+        // Validate tr() format
+        if (!cleanDescriptor.startsWith('tr(') || !cleanDescriptor.endsWith(')')) {
+            console.error('Invalid tr() format:', descriptor);
+            return null;
+        }
+        
+        // Extract content between tr( and )
+        const trContent = cleanDescriptor.slice(3, -1);
+        
+        // Find the first comma that's not inside parentheses
+        let commaIndex = -1;
+        let parenCount = 0;
+        for (let i = 0; i < trContent.length; i++) {
+            if (trContent[i] === '(') parenCount++;
+            else if (trContent[i] === ')') parenCount--;
+            else if (trContent[i] === ',' && parenCount === 0) {
+                commaIndex = i;
+                break;
+            }
+        }
+        
+        let internalKey, treeScript;
+        if (commaIndex === -1) {
+            // No comma found, key-path only: tr(key)
+            internalKey = trContent.trim();
+            treeScript = undefined;
+        } else {
+            // Split at the comma
+            internalKey = trContent.slice(0, commaIndex).trim();
+            treeScript = trContent.slice(commaIndex + 1).trim();
+        }
+        
+        console.log(`Parsed - Internal key: "${internalKey}", Tree script: "${treeScript}"`);
+        return { internalKey, treeScript };
+    }
+    
+    clearAllEditors() {
+        // Clear miniscript editor
+        const miniscriptInput = document.getElementById('expression-input');
+        if (miniscriptInput) {
+            miniscriptInput.value = '';
+            miniscriptInput.innerHTML = '';
+        }
+        
+        // Clear all script outputs
+        const scriptHex = document.getElementById('script-hex');
+        const scriptAsm = document.getElementById('script-asm');
+        const addressOutput = document.getElementById('address-output');
+        const treeVisualization = document.getElementById('tree-visualization');
+        const miniscriptSuccess = document.getElementById('miniscript-success-message');
+        
+        if (scriptHex) scriptHex.value = '';
+        if (scriptAsm) scriptAsm.value = '';
+        if (addressOutput) addressOutput.value = '';
+        if (treeVisualization) treeVisualization.innerHTML = '';
+        if (miniscriptSuccess) miniscriptSuccess.style.display = 'none';
+        
+        console.log('Cleared all editors and outputs for multi-branch taproot');
+    }
+    
+    parseTaprootBranches(treeScript) {
+        console.log(`parseTaprootBranches called with: ${treeScript}`);
+        if (!treeScript) return [];
+        
+        // Handle {pk(A),pk(B)} format
+        if (treeScript.startsWith('{') && treeScript.endsWith('}')) {
+            const inner = treeScript.slice(1, -1);
+            const branches = [];
+            
+            // Simple parsing - split on commas at depth 0
+            let depth = 0;
+            let parenDepth = 0;
+            let start = 0;
+            
+            for (let i = 0; i < inner.length; i++) {
+                const ch = inner[i];
+                if (ch === '{') depth++;
+                else if (ch === '}') depth--;
+                else if (ch === '(') parenDepth++;
+                else if (ch === ')') parenDepth--;
+                else if (ch === ',' && depth === 0 && parenDepth === 0) {
+                    branches.push(inner.slice(start, i).trim());
+                    start = i + 1;
+                }
+            }
+            
+            // Add the last branch
+            if (start < inner.length) {
+                branches.push(inner.slice(start).trim());
+            }
+            
+            return branches;
+        }
+        
+        // Single branch - remove any tr() wrapper using helper function
+        let singleBranch = treeScript;
+        if (singleBranch.startsWith('tr(')) {
+            const parsed = this.parseTrDescriptor(singleBranch);
+            if (parsed && parsed.treeScript) {
+                singleBranch = parsed.treeScript;
+            }
+        }
+        return [singleBranch];
+    }
+    
+    updatePolicySuccessContent(existingSuccess, miniscript, result = null) {
+        // Update the content for auto-compile scenarios
+        const contentDiv = existingSuccess.querySelector('div[style*="margin-top: 10px"]');
+        if (contentDiv) {
+            const newContent = this.generatePolicySuccessContent(miniscript, result);
+            contentDiv.outerHTML = newContent;
+        }
     }
 
     clearPolicyErrors(preserveSuccess = false) {
@@ -1052,8 +1516,8 @@ class MiniscriptCompiler {
     applyMiniscriptSyntaxHighlighting(text) {
         // Miniscript syntax patterns (based on official spec: https://bitcoin.sipa.be/miniscript/)
         return text
-            // HD wallet descriptors: [fingerprint/path]xpub/<range>/* or [fingerprint/path]xpub/path/index
-            .replace(/(\[)([A-Fa-f0-9]{8})(\/)([0-9h'/]+)(\])([xt]pub[A-Za-z0-9]+)((?:\/<[0-9;]+>\/\*|\/[0-9]+\/[0-9*]+))/g, 
+            // HD wallet descriptors: [fingerprint/path]xpub/<range>/* or [fingerprint/path]xpub/path/index or [fingerprint/path]xpub/<range>/index
+            .replace(/(\[)([A-Fa-f0-9]{8})(\/)([0-9h'/]+)(\])([xt]pub[A-Za-z0-9]+)((?:\/<[0-9;]+>\/(?:\*|[0-9]+)|\/[0-9]+\/[0-9*]+))/g, 
                 '<span class="syntax-descriptor-bracket">$1</span>' +
                 '<span class="syntax-fingerprint">$2</span>' +
                 '<span class="syntax-descriptor-bracket">$3</span>' +
@@ -1375,13 +1839,9 @@ class MiniscriptCompiler {
         }
         
         for (const [name, value] of this.keyVariables) {
-            let keyToUse = value;
-            
-            // For Taproot context, convert compressed keys to x-only by removing prefix
-            if (context === 'taproot' && value.length === 66 && (value.startsWith('02') || value.startsWith('03'))) {
-                keyToUse = value.substring(2); // Remove the 02/03 prefix for Taproot
-                console.log(`Converting ${name} from compressed ${value} to x-only ${keyToUse} for Taproot context`);
-            }
+            // Use the key value as-is without any conversion
+            // Users must select appropriate key types for their context
+            const keyToUse = value;
             
             // Replace key variables in pk(), using word boundaries to avoid partial matches
             const regex = new RegExp('\\b' + name + '\\b', 'g');
@@ -1790,6 +2250,7 @@ class MiniscriptCompiler {
         this.keyVariables.set('Uma', '020e46e79a2a8d12b9b21b533e2f1c6d5a7f8e9c0b1d2a3f4e5c6b7a8f9d0e3c');
         
         // Taproot keys (x-only, 64-char) - for Taproot examples
+        this.keyVariables.set('NUMS', '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0');
         this.keyVariables.set('David', 'fae4284884079a8134f553af138f5206584de24c44f2ba1b2d9215a32fc6b188');
         this.keyVariables.set('Helen', '96b6d68aefbcb7fd24c8847f98ec1d48bc24c3afd7d4fffda8ca3657ba6ab829');
         this.keyVariables.set('Ivan', 'ad9b3c720375428bb4f1e894b900f196537895d3c83878bcac7f008be7deedc2');
@@ -1801,11 +2262,26 @@ class MiniscriptCompiler {
         this.keyVariables.set('MainnetKey', '[C8FE8D4F/48h/1h/123h/2h]xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda/0/0');
         this.keyVariables.set('RangeKey', '[C8FE8D4F/48h/1h/123h/2h]tpubDDEe6Dc3LW1JEUzExDRZ3XBzcAzYxMTfVU5KojsTwXoJ4st6LzqgbFZ1HhDBdTptjXH9MwgdYG4K7MNJBfQktc6AoS8WeAWFDHwDTu99bZa/<1;0>/*');
         
-        // Vault keys for complex multi-signature examples
-        this.keyVariables.set('VaultKey1', '[7FBA5C83/48h/1h/123h/2h]tpubDCc4tcSBvj2WMGmeV5YePFJNYBaPwb5VWq3cG4KnGamVmFncD9Pai7RyCdCvZLmwizodR5DkKf5CsjyxQ2yXd77FBubErc142mYVu3AasqJ/<6;7>/*');
-        this.keyVariables.set('VaultKey2', '[CB6FE460/48h/1h/123h/2h]tpubDDUa4VEMvBzGPR5V6PKLGtApaVPqFBTGbr2NH2YgPF8G24EP6kqYhA7GBdGL8pAAyW97qeidMHJbeuVAfL5Th8z8CCLgs427P9nJYWC4C2j/<12;13>/*');
-        this.keyVariables.set('VaultKey3', '[9F996716/48h/1h/0h/2h]tpubDC8ne3Amvh6dPrBtkLb9H1CutNTmvYi4jKnt3bDFMXAkPB8bdGZMWtJAiGUPSkpqi49XWR16q7ZvcKfepcgApuYH1vqq72oNpyxE2gNqBod/<16;17>/*');
-        this.keyVariables.set('VaultKey4', '[0A4E923E/48h/1h/123h/2h]tpubDCQwZ5SRgzsiqpzkZjVsjLij3XnE4woshJPnUQDoU6Wc9NVy2zFMApMGftBwCe3t5UnGmqbL69EUu9P9ydZrwi2gEzxbYEQv16qiCzaujdB/<16;17>/*');
+        // Vault keys for complex vault examples with range descriptors
+        this.keyVariables.set('VaultKey1', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<10;11>/*');
+        this.keyVariables.set('VaultKey2', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<8;9>/*');
+        this.keyVariables.set('VaultKey3', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<6;7>/*');
+        this.keyVariables.set('VaultKey4', '[7FBA5C83/48h/1h/123h/2h]tpubDE5BZRXogAy3LHDKYhfuw2gCasYxsfKPLrfdsS9GxAV45v7u2DAcBGCVKPYjLgYeMMKq29aAHy2xovHL9KTd8VvpMHfPiDA9jzBwCg73N5H/<6;7>/*');
+        this.keyVariables.set('VaultKey5', '[7FBA5C83/48h/1h/123h/2h]tpubDE5BZRXogAy3LHDKYhfuw2gCasYxsfKPLrfdsS9GxAV45v7u2DAcBGCVKPYjLgYeMMKq29aAHy2xovHL9KTd8VvpMHfPiDA9jzBwCg73N5H/<4;5>/*');
+        this.keyVariables.set('VaultKey6', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<12;13>/*');
+        this.keyVariables.set('VaultKey7', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<10;11>/*');
+        this.keyVariables.set('VaultKey8', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<8;9>/*');
+        this.keyVariables.set('VaultKey9', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<6;7>/*');
+        this.keyVariables.set('VaultKey10', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<16;17>/*');
+        this.keyVariables.set('VaultKey11', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<14;15>/*');
+        this.keyVariables.set('VaultKey12', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<12;13>/*');
+        this.keyVariables.set('VaultKey13', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<10;11>/*');
+        this.keyVariables.set('VaultKey14', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<8;9>/*');
+        this.keyVariables.set('VaultKey15', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<16;17>/*');
+        this.keyVariables.set('VaultKey16', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<14;15>/*');
+        this.keyVariables.set('VaultKey17', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<12;13>/*');
+        this.keyVariables.set('VaultKey18', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<10;11>/*');
+        this.keyVariables.set('VaultKey19', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<8;9>/*');
         
         // Joint custody keys for 3-key joint custody example
         this.keyVariables.set('jcKey1', '03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556');
@@ -1833,7 +2309,7 @@ class MiniscriptCompiler {
     }
 
     restoreDefaultKeys() {
-        if (confirm('This will restore 41 default key variables: Alice, Bob, Charlie, Eva, Frank, Lara, Helen, Ivan, Julia, Karl, David, Mike, Nina, Oliver, Paul, Quinn, Rachel, Sam, Tina, Uma, plus joint custody keys (jcKey1, jcKey2, jcKey3, saKey, jcAg1, jcAg2, jcAg3, recKey1, recKey2, recKey3), plus descriptor keys (TestnetKey, MainnetKey, RangeKey, VaultKeys), plus Liana wallet keys (LianaDesc1-7). Continue?')) {
+        if (confirm('This will restore 56 default key variables: Alice, Bob, Charlie, Eva, Frank, Lara, Helen, Ivan, Julia, Karl, David, Mike, Nina, Oliver, Paul, Quinn, Rachel, Sam, Tina, Uma, plus joint custody keys (jcKey1, jcKey2, jcKey3, saKey, jcAg1, jcAg2, jcAg3, recKey1, recKey2, recKey3), plus descriptor keys (TestnetKey, MainnetKey, RangeKey, VaultKey1-19), plus Liana wallet keys (LianaDesc1-7). Continue?')) {
             this.addDefaultKeys();
         }
     }
@@ -2142,7 +2618,7 @@ class MiniscriptCompiler {
         } else if (keyValue.length === 66 && (keyValue.startsWith('02') || keyValue.startsWith('03'))) {
             prefix = 'Key';
         } else if (keyValue.includes('[') && keyValue.includes(']')) {
-            prefix = 'DescriptorKey';
+            prefix = 'VaultKey';
         }
         
         // Find a unique name
@@ -3591,6 +4067,8 @@ class MiniscriptCompiler {
             const addressDisplay = addressDiv.querySelector('#address-display');
             addressDisplay.dataset.scriptHex = result.script;
             addressDisplay.dataset.scriptType = result.miniscript_type || 'Unknown';
+            // Store the processed miniscript for taproot network switching
+            addressDisplay.dataset.miniscript = result.processedMiniscript || '';
             
             // Add event listener for network toggle
             const networkToggleBtn = addressDiv.querySelector('#network-toggle-btn');
@@ -3661,7 +4139,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, etc.) with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -3679,7 +4157,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, etc.) with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -3701,9 +4179,109 @@ class MiniscriptCompiler {
         // Remove whitespace for parsing
         expression = expression.trim();
         
+        // Check if this is a tr() descriptor
+        if (expression.startsWith('tr(')) {
+            return this.parseTaprootDescriptor(expression);
+        }
+        
         // Parse the expression into a tree structure
         const tree = this.parseNode(expression);
         return tree;
+    }
+    
+    parseTaprootDescriptor(descriptor) {
+        // Parse tr(internal_key,{tree}) format
+        const match = descriptor.match(/^tr\(([^,)]+)(?:,(.+))?\)(?:#[a-z0-9]+)?$/);
+        if (!match) return null;
+        
+        const internalKey = match[1];
+        const treeScript = match[2];
+        
+        const tree = {
+            type: 'taproot',
+            internalKey: internalKey,
+            children: []
+        };
+        
+        if (treeScript) {
+            // Parse the tree structure
+            if (treeScript.startsWith('{') && treeScript.endsWith('}')) {
+                // Multi-leaf tree: {pk(A),pk(B)} or {pk(A),{pk(B),pk(C)}}
+                const innerTree = this.parseTaprootTree(treeScript);
+                if (innerTree) {
+                    tree.children.push(innerTree);
+                }
+            } else {
+                // Single leaf
+                tree.children.push({
+                    type: 'leaf',
+                    miniscript: treeScript
+                });
+            }
+        }
+        
+        return tree;
+    }
+    
+    parseTaprootTree(treeStr) {
+        // Remove outer braces
+        const inner = treeStr.slice(1, -1);
+        
+        // Find the top-level comma
+        let depth = 0;
+        let parenDepth = 0;
+        let commaPos = -1;
+        
+        for (let i = 0; i < inner.length; i++) {
+            const ch = inner[i];
+            if (ch === '{') depth++;
+            else if (ch === '}') depth--;
+            else if (ch === '(') parenDepth++;
+            else if (ch === ')') parenDepth--;
+            else if (ch === ',' && depth === 0 && parenDepth === 0) {
+                commaPos = i;
+                break;
+            }
+        }
+        
+        if (commaPos === -1) {
+            // Single leaf
+            return {
+                type: 'leaf',
+                miniscript: inner.trim()
+            };
+        }
+        
+        // Branch with left and right
+        const left = inner.slice(0, commaPos).trim();
+        const right = inner.slice(commaPos + 1).trim();
+        
+        const branch = {
+            type: 'branch',
+            children: []
+        };
+        
+        // Parse left side
+        if (left.startsWith('{') && left.endsWith('}')) {
+            branch.children.push(this.parseTaprootTree(left));
+        } else {
+            branch.children.push({
+                type: 'leaf',
+                miniscript: left
+            });
+        }
+        
+        // Parse right side
+        if (right.startsWith('{') && right.endsWith('}')) {
+            branch.children.push(this.parseTaprootTree(right));
+        } else {
+            branch.children.push({
+                type: 'leaf',
+                miniscript: right
+            });
+        }
+        
+        return branch;
     }
     
     parseNode(expr) {
@@ -3818,7 +4396,7 @@ class MiniscriptCompiler {
                 // Check if it's a simple key function that should be inline
                 if ((tree.child.name === 'pk_k' || tree.child.name === 'pk_h' || tree.child.name === 'pk' || tree.child.name === 'pkh') 
                     && tree.child.args && tree.child.args.length === 1 && tree.child.args[0].type === 'terminal') {
-                    // Format inline: a: pkh(VaultKey4)
+                    // Format inline: a: pkh(VaultKey19)
                     return `${wrappers} ${tree.child.name}(${tree.child.args[0].value})`;
                 }
                 
@@ -3930,7 +4508,65 @@ class MiniscriptCompiler {
     calculateNodePositions(tree, depth, position) {
         if (!tree) return null;
         
-        // Helper to format node text
+        // Handle taproot tree structure
+        if (tree.type === 'taproot') {
+            const rootNode = {
+                type: 'taproot_root',
+                text: `taproot`, // Remove tr(NUMS) display
+                depth: depth,
+                position: position,
+                children: []
+            };
+            
+            // Add tree children if they exist
+            if (tree.children && tree.children.length > 0) {
+                tree.children.forEach((child, index) => {
+                    const childNode = this.calculateNodePositions(child, depth + 1, index);
+                    if (childNode) {
+                        rootNode.children.push(childNode);
+                    }
+                });
+            }
+            
+            return rootNode;
+        }
+        
+        if (tree.type === 'branch') {
+            const branchNode = {
+                type: 'taproot_branch',
+                text: 'Branch',
+                depth: depth,
+                position: position,
+                children: []
+            };
+            
+            tree.children.forEach((child, index) => {
+                const childNode = this.calculateNodePositions(child, depth + 1, index);
+                if (childNode) {
+                    branchNode.children.push(childNode);
+                }
+            });
+            
+            return branchNode;
+        }
+        
+        if (tree.type === 'leaf') {
+            // Replace key names if available
+            let displayMiniscript = tree.miniscript;
+            if (this.keyVariables && this.keyVariables.size > 0) {
+                displayMiniscript = this.replaceKeysWithNames(tree.miniscript);
+            }
+            
+            return {
+                type: 'taproot_leaf',
+                text: displayMiniscript,
+                depth: depth,
+                position: position,
+                children: []
+            };
+        }
+        
+        // Helper to format node text (original logic for non-taproot trees)
         const formatNode = (node) => {
             if (node.type === 'wrapper') {
                 const wrappers = node.wrapper.replace(':', '').split('').join(': ') + ':';
@@ -4167,6 +4803,26 @@ class MiniscriptCompiler {
                                 }
                             }
                         }
+                        
+                        // Add/Update/Remove Taproot info for auto-compile updates
+                        const context = document.querySelector('input[name="context"]:checked')?.value;
+                        const existingTaprootInfo = existingSuccess.querySelector('.taproot-info');
+                        
+                        if (context === 'taproot') {
+                            const taprootInfo = this.generateTaprootInfo(expression);
+                            if (taprootInfo) {
+                                if (existingTaprootInfo) {
+                                    // Replace existing taproot info with new one
+                                    existingTaprootInfo.outerHTML = taprootInfo;
+                                } else {
+                                    // Add new taproot info
+                                    existingSuccess.insertAdjacentHTML('beforeend', taprootInfo);
+                                }
+                            }
+                        } else if (existingTaprootInfo) {
+                            // Remove taproot info if context is no longer taproot
+                            existingTaprootInfo.remove();
+                        }
                     } catch (error) {
                         console.error('Error generating tree:', error);
                     }
@@ -4177,6 +4833,7 @@ class MiniscriptCompiler {
         
         // Normal behavior - create new message
         let treeHtml = '';
+        let taprootInfoHtml = '';
         
         // Generate tree visualization if expression is provided
         if (expression) {
@@ -4210,18 +4867,243 @@ class MiniscriptCompiler {
                         `;
                     }
                 }
+                
+                // Generate Taproot info if context is taproot
+                const context = document.querySelector('input[name="context"]:checked')?.value;
+                if (context === 'taproot') {
+                    taprootInfoHtml = this.generateTaprootInfo(expression);
+                }
             } catch (error) {
                 console.error('Error generating tree:', error);
             }
         }
         
+        // Check if this is Taproot context and add mode selection if needed
+        const context = document.querySelector('input[name="context"]:checked')?.value;
+        let modeSelectionHtml = '';
+        
+        if (context === 'taproot' && expression && !expression.startsWith('tr(')) {
+            // Get current mode (default to single-leaf for direct miniscript)
+            const currentMode = window.currentTaprootMode || 'single-leaf';
+            
+            modeSelectionHtml = `
+                <div style="margin-top: 15px; margin-bottom: 15px; padding: 10px; background: var(--success-bg); border-radius: 6px; border: 1px solid var(--success-border);">
+                    <div style="margin-bottom: 10px;"><strong>Compilation Mode:</strong></div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="taproot-miniscript-mode" value="single-leaf" ${currentMode === 'single-leaf' ? 'checked' : ''} 
+                                   onchange="window.switchTaprootModeFromMiniscript('single-leaf')" 
+                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
+                            <span style="font-size: 13px;"><strong>Miniscript compilation</strong> (single script)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="taproot-miniscript-mode" value="multi-leaf" ${currentMode === 'multi-leaf' ? 'checked' : ''} 
+                                   onchange="window.switchTaprootModeFromMiniscript('multi-leaf')" 
+                                   style="margin-right: 8px; accent-color: var(--accent-color); transform: scale(1.1);">
+                            <span style="font-size: 13px;"><strong>Taproot compilation</strong> (multi-leaf TapTree)</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+        }
+        
         messagesDiv.innerHTML = `
             <div class="result-box success" style="margin: 0;">
                 <h4>✅ Success</h4>
+                ${modeSelectionHtml}
                 <div style="margin-top: 10px; word-wrap: break-word; word-break: break-all; overflow-wrap: break-word; white-space: pre-wrap;">${message}</div>
                 ${treeHtml}
+                ${taprootInfoHtml}
             </div>
         `;
+    }
+
+    generateTaprootInfo(expression) {
+        try {
+            // Parse the expression to understand taproot structure
+            const isTaprootDescriptor = expression && expression.trim().startsWith('tr(');
+            
+            // Get current taproot mode for display
+            const currentMode = window.currentTaprootMode || 'single-leaf';
+            
+            // Try to get taproot leaves from WASM
+            let leavesHtml = '';
+            if (this.wasm && get_taproot_leaves) {
+                try {
+                    // First replace key variables for the WASM call
+                    const context = document.querySelector('input[name="context"]:checked').value;
+                    const processedExpression = this.replaceKeyVariables(expression, context);
+                    const leaves = get_taproot_leaves(processedExpression);
+                    
+                    if (leaves && leaves.length > 0) {
+                        leavesHtml = `
+                            <div style="margin-top: 12px;">
+                                <strong>Script Tree Leaves (${leaves.length}):</strong>
+                        `;
+                        
+                        leaves.forEach((leaf, index) => {
+                            // Replace keys back with names for display if toggle is active
+                            let displayMiniscript = leaf.miniscript;
+                            const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                            if (showKeyNames && this.keyVariables.size > 0) {
+                                displayMiniscript = this.replaceKeysWithNames(leaf.miniscript);
+                            }
+                            
+                            // Handle special cases
+                            let scriptHex, scriptAsm;
+                            if (leaf.script_hex === "requires_key_conversion") {
+                                scriptHex = "Key conversion needed";
+                                scriptAsm = "PublicKey format - needs x-only conversion for taproot";
+                            } else {
+                                scriptHex = leaf.script_hex;
+                                scriptAsm = leaf.script_asm || "Not available";
+                                // Replace keys in ASM if toggle is active and ASM is available
+                                if (showKeyNames && this.keyVariables.size > 0 && leaf.script_asm && leaf.script_asm !== "Not available") {
+                                    scriptAsm = this.replaceKeysWithNames(leaf.script_asm);
+                                }
+                            }
+                            
+                            leavesHtml += `
+                                <div style="margin-top: 10px; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px; background: transparent;">
+                                    <div><strong>Leaf #${leaf.leaf_index} (${leaf.branch_path})</strong></div>
+                                    <div style="margin-top: 6px;">
+                                        <strong>Miniscript:</strong><br>
+                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary);">${displayMiniscript}</span>
+                                    </div>
+                                    <div style="margin-top: 6px;">
+                                        <strong>Script (Hex):</strong><br>
+                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary); font-size: 11px;">${scriptHex}</span>
+                                    </div>
+                                    <div style="margin-top: 6px;">
+                                        <strong>Script (ASM):</strong><br>
+                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary); font-size: 11px;">${scriptAsm}</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        leavesHtml += `
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.error('Failed to get taproot leaves:', e);
+                }
+            }
+            
+            if (!isTaprootDescriptor) {
+                // For non-tr() expressions in taproot context, show info based on mode
+                if (currentMode === 'single-leaf') {
+                    // Single-leaf mode: no taproot details needed
+                    return '';
+                } else {
+                    // Multi-leaf mode: show tree structure with leaves
+                    return `
+                        <div class="taproot-info" style="margin-top: 15px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                            <strong>🌿 Taproot Details</strong>
+                            <div style="margin-top: 8px; font-size: 12px; line-height: 1.6;">
+                                <div><strong>Script Type:</strong> Multi-leaf TapTree</div>
+                                <div><strong>Internal Key:</strong> NUMS point (unspendable)</div>
+                                <div><strong>Spend Path:</strong> Script path only</div>
+                                <div style="margin-top: 8px; color: var(--text-secondary);">
+                                    ℹ️ This miniscript is optimized into multiple tapscript leaves for efficient spending paths.
+                                </div>
+                                ${leavesHtml}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Parse tr() descriptor to extract internal key and tree structure
+            const trMatch = expression.match(/^tr\(([^,)]+)(?:,(.+))?\)$/);
+            if (!trMatch) {
+                return ''; // Invalid tr() format
+            }
+            
+            const internalKey = trMatch[1];
+            const treeScript = trMatch[2] || '';
+            
+            // Determine if internal key is NUMS or a real key
+            const isNUMS = internalKey.includes('50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0');
+            
+            let keyType;
+            if (isNUMS) {
+                keyType = 'NUMS point (unspendable)';
+            } else {
+                // Show key name if toggle is active, otherwise show "User-provided key"
+                const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                if (showKeyNames && this.keyVariables.size > 0) {
+                    const keyWithNames = this.replaceKeysWithNames(internalKey);
+                    keyType = keyWithNames !== internalKey ? keyWithNames : 'User-provided key';
+                } else {
+                    keyType = 'User-provided key';
+                }
+            }
+            const spendPaths = [];
+            
+            if (!isNUMS) {
+                spendPaths.push('Key path (signature only)');
+            }
+            if (treeScript) {
+                spendPaths.push('Script path (reveal script + witness)');
+            }
+            
+            // Count tree leaves if there's a tree
+            let leafCount = 0;
+            if (treeScript) {
+                // Simple heuristic: count occurrences of pk, pkh, and other leaf-like patterns
+                // This is simplified - a full parser would be better
+                leafCount = (treeScript.match(/\bpk[h]?\(/g) || []).length;
+                if (leafCount === 0) leafCount = 1; // At least one leaf if there's a tree
+            }
+            
+            let taprootHtml = `
+                <div class="taproot-info" style="margin-top: 15px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                    <strong>🌿 Taproot Details</strong>
+                    <div style="margin-top: 8px; font-size: 12px; line-height: 1.6;">
+                        <div><strong>Internal Key:</strong> ${keyType}</div>
+                        <div><strong>Spend Paths:</strong> ${spendPaths.join(', ') || 'None'}</div>
+            `;
+            
+            if (treeScript) {
+                taprootHtml += `
+                        <div><strong>Script Tree:</strong> ${leafCount} leaf${leafCount !== 1 ? 'ves' : ''}</div>
+                `;
+            }
+            
+            // Add informational note
+            if (isNUMS && treeScript) {
+                taprootHtml += `
+                        <div style="margin-top: 8px; color: var(--text-secondary);">
+                            ℹ️ Using NUMS point ensures this can only be spent via script path, not key path.
+                        </div>
+                `;
+            } else if (!isNUMS && !treeScript) {
+                taprootHtml += `
+                        <div style="margin-top: 8px; color: var(--text-secondary);">
+                            ℹ️ Key-path only spending - most efficient taproot usage.
+                        </div>
+                `;
+            } else if (!isNUMS && treeScript) {
+                taprootHtml += `
+                        <div style="margin-top: 8px; color: var(--text-secondary);">
+                            ℹ️ Dual spending paths: efficient key path or flexible script path.
+                        </div>
+                `;
+            }
+            
+            taprootHtml += `
+                    </div>
+                    ${leavesHtml}
+                </div>
+            `;
+            
+            return taprootHtml;
+        } catch (error) {
+            console.error('Error generating taproot info:', error);
+            return '';
+        }
     }
 
     clearMiniscriptMessages(preserveSuccess = false) {
@@ -4411,6 +5293,9 @@ class MiniscriptCompiler {
         document.getElementById('results').innerHTML = '';
         this.initializeEmptyResults();
         this.clearMiniscriptMessages();
+        
+        // Reset taproot mode to default
+        window.currentTaprootMode = 'single-leaf';
         
         // Reset description states to default (expanded)
         if (window.resetDescriptionStates) {
@@ -4624,6 +5509,7 @@ class MiniscriptCompiler {
         const currentNetwork = button.dataset.network;
         const scriptHex = addressDisplay.dataset.scriptHex;
         const scriptType = addressDisplay.dataset.scriptType;
+        const miniscript = addressDisplay.dataset.miniscript;
         
         if (!scriptHex || !scriptType) {
             console.error('Missing script information for network toggle');
@@ -4646,8 +5532,15 @@ class MiniscriptCompiler {
         try {
             console.log(`Switching from ${currentNetwork} to ${newNetwork} for ${scriptType} script`);
             
-            // Call WASM function to generate address for new network
-            const result = generate_address_for_network(scriptHex, scriptType, newNetwork);
+            // For Taproot, use TaprootBuilder approach (same as compilation)
+            let result;
+            if (scriptType === 'Taproot' && miniscript) {
+                console.log('DEBUG: Using TaprootBuilder for miniscript:', miniscript);
+                result = generate_taproot_address_with_builder(miniscript, newNetwork);
+            } else {
+                // Call original WASM function for other script types
+                result = generate_address_for_network(scriptHex, scriptType, newNetwork);
+            }
             
             if (result.success && result.address) {
                 // Update address display
@@ -4701,9 +5594,111 @@ class MiniscriptCompiler {
         `).join('');
     }
 
+    showSavedMiniscriptsModal() {
+        const expressions = this.getSavedExpressions();
+        
+        // Create modal HTML
+        const modalHtml = `
+            <div id="saved-miniscripts-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                <div style="background: var(--container-bg); border-radius: 8px; padding: 20px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: var(--text-primary);">📂 Saved Miniscripts</h3>
+                        <button onclick="document.getElementById('saved-miniscripts-modal').remove()" style="background: none; border: none; color: var(--text-secondary); font-size: 24px; cursor: pointer; padding: 0;">×</button>
+                    </div>
+                    <div id="modal-miniscripts-list">
+                        ${expressions.length === 0 ? 
+                            '<p style="color: var(--text-muted); font-style: italic; font-size: 14px; text-align: center; padding: 20px;">No saved miniscripts yet.</p>' :
+                            expressions.map(expr => `
+                                <div class="expression-item" style="margin-bottom: 10px;">
+                                    <div class="expression-info">
+                                        <div class="expression-name">${this.escapeHtml(expr.name)}</div>
+                                        <div class="expression-preview">${this.escapeHtml(expr.expression)}</div>
+                                    </div>
+                                    <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                                        <button onclick="compiler.loadMiniscriptFromModal('${this.escapeHtml(expr.name)}')" class="secondary-btn" style="padding: 6px 12px; font-size: 12px;">📂 Load</button>
+                                        <button onclick="compiler.deleteMiniscriptFromModal('${this.escapeHtml(expr.name)}')" class="danger-btn" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                                    </div>
+                                </div>
+                            `).join('')
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add modal to the page
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Close modal on ESC key
+        const closeOnEsc = (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('saved-miniscripts-modal');
+                if (modal) modal.remove();
+                document.removeEventListener('keydown', closeOnEsc);
+            }
+        };
+        document.addEventListener('keydown', closeOnEsc);
+        
+        // Close modal on background click
+        const modal = document.getElementById('saved-miniscripts-modal');
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+    }
+
+    loadMiniscriptFromModal(name) {
+        // Close the modal
+        const modal = document.getElementById('saved-miniscripts-modal');
+        if (modal) modal.remove();
+        
+        // Load the expression
+        this.loadExpression(name);
+    }
+
+    deleteMiniscriptFromModal(name) {
+        if (!confirm(`Are you sure you want to delete miniscript "${name}"?`)) {
+            return;
+        }
+
+        const expressions = this.getSavedExpressions();
+        const filteredExpressions = expressions.filter(expr => expr.name !== name);
+        this.setSavedExpressions(filteredExpressions);
+        
+        // Update the modal content
+        const modalList = document.getElementById('modal-miniscripts-list');
+        if (modalList) {
+            if (filteredExpressions.length === 0) {
+                modalList.innerHTML = '<p style="color: var(--text-muted); font-style: italic; font-size: 14px; text-align: center; padding: 20px;">No saved miniscripts yet.</p>';
+            } else {
+                modalList.innerHTML = filteredExpressions.map(expr => `
+                    <div class="expression-item" style="margin-bottom: 10px;">
+                        <div class="expression-info">
+                            <div class="expression-name">${this.escapeHtml(expr.name)}</div>
+                            <div class="expression-preview">${this.escapeHtml(expr.expression)}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <button onclick="compiler.loadMiniscriptFromModal('${this.escapeHtml(expr.name)}')" class="secondary-btn" style="padding: 6px 12px; font-size: 12px;">📂 Load</button>
+                            <button onclick="compiler.deleteMiniscriptFromModal('${this.escapeHtml(expr.name)}')" class="danger-btn" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        // Also update the main saved expressions list if it's visible
+        this.loadSavedExpressions();
+    }
+
     loadExpression(name) {
         const expressions = this.getSavedExpressions();
         const savedExpr = expressions.find(expr => expr.name === name);
+        
+        // Reset taproot mode to default
+        window.currentTaprootMode = 'single-leaf';
         
         if (savedExpr) {
             document.getElementById('expression-input').textContent = savedExpr.expression;
@@ -4982,9 +5977,111 @@ class MiniscriptCompiler {
         `).join('');
     }
 
+    showSavedPoliciesModal() {
+        const policies = this.getSavedPolicies();
+        
+        // Create modal HTML
+        const modalHtml = `
+            <div id="saved-policies-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                <div style="background: var(--container-bg); border-radius: 8px; padding: 20px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: var(--text-primary);">📂 Saved Policies</h3>
+                        <button onclick="document.getElementById('saved-policies-modal').remove()" style="background: none; border: none; color: var(--text-secondary); font-size: 24px; cursor: pointer; padding: 0;">×</button>
+                    </div>
+                    <div id="modal-policies-list">
+                        ${policies.length === 0 ? 
+                            '<p style="color: var(--text-muted); font-style: italic; font-size: 14px; text-align: center; padding: 20px;">No saved policies yet.</p>' :
+                            policies.map(policy => `
+                                <div class="expression-item" style="margin-bottom: 10px;">
+                                    <div class="expression-info">
+                                        <div class="expression-name">${this.escapeHtml(policy.name)}</div>
+                                        <div class="expression-preview">${this.escapeHtml(policy.expression)}</div>
+                                    </div>
+                                    <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                                        <button onclick="compiler.loadPolicyFromModal('${this.escapeHtml(policy.name)}')" class="secondary-btn" style="padding: 6px 12px; font-size: 12px;">📂 Load</button>
+                                        <button onclick="compiler.deletePolicyFromModal('${this.escapeHtml(policy.name)}')" class="danger-btn" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                                    </div>
+                                </div>
+                            `).join('')
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add modal to the page
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Close modal on ESC key
+        const closeOnEsc = (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('saved-policies-modal');
+                if (modal) modal.remove();
+                document.removeEventListener('keydown', closeOnEsc);
+            }
+        };
+        document.addEventListener('keydown', closeOnEsc);
+        
+        // Close modal on background click
+        const modal = document.getElementById('saved-policies-modal');
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+    }
+
+    loadPolicyFromModal(name) {
+        // Close the modal
+        const modal = document.getElementById('saved-policies-modal');
+        if (modal) modal.remove();
+        
+        // Load the policy
+        this.loadPolicy(name);
+    }
+
+    deletePolicyFromModal(name) {
+        if (!confirm(`Are you sure you want to delete policy "${name}"?`)) {
+            return;
+        }
+
+        const policies = this.getSavedPolicies();
+        const filteredPolicies = policies.filter(policy => policy.name !== name);
+        this.setSavedPolicies(filteredPolicies);
+        
+        // Update the modal content
+        const modalList = document.getElementById('modal-policies-list');
+        if (modalList) {
+            if (filteredPolicies.length === 0) {
+                modalList.innerHTML = '<p style="color: var(--text-muted); font-style: italic; font-size: 14px; text-align: center; padding: 20px;">No saved policies yet.</p>';
+            } else {
+                modalList.innerHTML = filteredPolicies.map(policy => `
+                    <div class="expression-item" style="margin-bottom: 10px;">
+                        <div class="expression-info">
+                            <div class="expression-name">${this.escapeHtml(policy.name)}</div>
+                            <div class="expression-preview">${this.escapeHtml(policy.expression)}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <button onclick="compiler.loadPolicyFromModal('${this.escapeHtml(policy.name)}')" class="secondary-btn" style="padding: 6px 12px; font-size: 12px;">📂 Load</button>
+                            <button onclick="compiler.deletePolicyFromModal('${this.escapeHtml(policy.name)}')" class="danger-btn" style="padding: 6px 12px; font-size: 12px;">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        // Also update the main saved policies list if it's visible
+        this.loadSavedPolicies();
+    }
+
     loadPolicy(name) {
         const policies = this.getSavedPolicies();
         const savedPolicy = policies.find(policy => policy.name === name);
+        
+        // Reset taproot mode to default
+        window.currentTaprootMode = 'single-leaf';
         
         if (savedPolicy) {
             document.getElementById('policy-input').textContent = savedPolicy.expression;
@@ -5089,6 +6186,9 @@ window.loadExample = function(example, exampleId) {
     const expressionInput = document.getElementById('expression-input');
     const isMobile = window.innerWidth <= 768;
     
+    // Reset taproot mode to default
+    window.currentTaprootMode = 'single-leaf';
+    
     // Set the content
     expressionInput.textContent = example;
     
@@ -5103,6 +6203,7 @@ window.loadExample = function(example, exampleId) {
             delete policyInput.dataset.originalTemplate;
             delete policyInput.dataset.exampleId;
         }
+        
     }
     
     // Clear the "last highlighted text" to force re-highlighting
@@ -5208,6 +6309,9 @@ window.loadPolicyExample = function(example, exampleId) {
     
     const policyInput = document.getElementById('policy-input');
     const isMobile = window.innerWidth <= 768;
+    
+    // Reset taproot mode to default
+    window.currentTaprootMode = 'single-leaf';
     
     // Set the content
     policyInput.textContent = example;
@@ -5442,6 +6546,15 @@ window.showPolicyDescription = function(exampleId) {
             efficiency: '⚡ **Efficiency:** All paths require timelock verification plus threshold logic (~200+ bytes), but prevents any spending before activation date.',
             security: '✅ **Security benefits:** Absolute prevention of early spending (even with all signatures), requires majority consensus after activation, immutable schedule prevents coercion or impulsive changes.',
             bestFor: '✅ **Best for:** Vesting schedules, trust funds, scheduled distributions, escrow services, any scenario requiring guaranteed future activation with group control, regulatory compliance requiring time delays'
+        },
+        'multi_branch': {
+            title: '📄 Multi-Branch OR Policy - Taproot Key-Path Optimization',
+            conditions: '🔓 David: Key-path spending (most efficient - just a signature)\n🔓 Helen: Script-path spending (reveal script + signature)\n🔓 Uma: Script-path spending (reveal script + signature)',
+            useCase: '**Taproot Smart Optimization:** This policy demonstrates how Taproot automatically optimizes OR conditions. Instead of 3 script leaves, it creates: David as the internal key (key-path spending) + Helen/Uma as script leaves. David gets the most efficient spending path, while Helen/Uma share the script tree.',
+            examples: '💡 **Perfect Optimization:** The miniscript library intelligently chose David for key-path spending (no script revelation needed) and put Helen/Uma in the script tree. This is more efficient than forcing all three into script paths. Switch to "Taproot compilation (multi-leaf TapTree)" mode to see the tr(David,{pk(Helen),pk(Uma)}) structure.',
+            efficiency: '⚡ **Efficiency:** David spends with just 64 bytes (signature only). Helen/Uma each need ~34 bytes script + 64 bytes signature = ~98 bytes. Key-path spending is the most efficient option in Taproot. Total possible: key-path (64B) vs script-path (~98B).',
+            security: '✅ **Security benefits:** David\'s spending reveals no scripts or other participants. Helen/Uma spending only reveals their specific script, not David\'s key or the other person\'s script. Maximum privacy through selective revelation.',
+            bestFor: '✅ **Best for:** Scenarios where one party (David) is primary/preferred and others are alternatives, inheritance with preferred heir + backups, business with primary signer + emergency alternatives, demonstrating Taproot\'s intelligent optimization over naive 3-leaf structures'
         }
     };
     
@@ -5518,7 +6631,7 @@ window.showMiniscriptDescription = function(exampleId) {
             technical: '💡 s: wrapper swaps stack elements for proper evaluation'
         },
         'complex': {
-            title: '⚙️ Complex AND/OR: Why and_v + or_b + Wrappers',
+            title: '⚙️ AND/OR: Why and_v + or_b + Wrappers',
             structure: 'and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie))) → Alice AND (Bob OR Charlie)',
             bitcoinScript: '<Alice> CHECKSIGVERIFY <Bob> CHECKSIG SWAP <Charlie> CHECKSIG BOOLOR',
             useCase: 'Alice must always sign, plus either Bob or Charlie. Demonstrates wrapper logic: v: for VERIFY, s: for stack SWAP.',
@@ -5630,11 +6743,11 @@ window.showMiniscriptDescription = function(exampleId) {
             technical: '💡 Uses CLTV (CheckLockTimeVerify) for absolute time constraints'
         },
         'vault_complex': {
-            title: '🏦 Enterprise Multi-Tier Vault System',
-            structure: 'Nested or_i structure: 5 spending paths from most secure (immediate) to most accessible (14-day delay)',
-            bitcoinScript: '🚨 Emergency: VaultKey3+VaultKey4 (immediate) → 📅 Tier 1: VaultKey3 OR 2-of-3 keys (after 1 day) → 📅 Tier 2: VaultKey4 OR 2-of-3 keys (after 3 days) → 📅 Tier 3: VaultKey2 OR 2-of-5 keys (after 7 days) → 📅 Final: VaultKey1 OR TestnetKey (after 14 days)',
-            useCase: 'Corporate treasury with graduated security model. Immediate access requires 2 directors (VaultKey3+VaultKey4). As time passes, recovery becomes easier but requires waiting longer. Perfect for balancing security vs. accessibility in enterprise custody.',
-            technical: '💡 Why or_i for vault design: Each or_i branch represents a different security/time tradeoff. Spender chooses which path to execute - immediate high security or delayed lower security. The nested structure creates 5 distinct spending conditions with clear priority ordering from most to least secure.'
+            title: '🏦 Enterprise Multi-Tier Vault System with Range Descriptors',
+            structure: 'Nested or_i structure: 5 spending paths from most secure (immediate) to most accessible (2-day delay)',
+            bitcoinScript: '🚨 Emergency: VaultKey14+VaultKey19 (immediate) → 📅 Tier 1: VaultKey12 OR 2-of-3 keys (after 2 hours) → 📅 Tier 2: VaultKey16 OR 2-of-3 keys (after 4 hours) → 📅 Tier 3: VaultKey6 OR 2-of-5 keys (after 1 day) → 📅 Final: VaultKey1 OR VaultKey4 (after 2 days)',
+            useCase: 'Advanced corporate treasury using range descriptors with graduated security model. Immediate access requires 2 executive keys (VaultKey14+VaultKey19). As time passes, recovery becomes easier but requires waiting longer. Each key uses range descriptors (/<10;11>/*) enabling multiple receive addresses while maintaining spending conditions. Perfect for balancing security vs. accessibility in enterprise custody with HD wallet support.',
+            technical: '💡 Why or_i for vault design: Each or_i branch represents a different security/time tradeoff. Spender chooses which path to execute - immediate high security or delayed lower security. The nested structure creates 5 distinct spending conditions with clear priority ordering. Range descriptors allow each spending path to support multiple addresses from the same keys, enabling better privacy and address management without changing the security model.'
         },
         'joint_custody': {
             title: '🔐 3-Key Joint Custody: Negative Control System',
@@ -5649,6 +6762,13 @@ window.showMiniscriptDescription = function(exampleId) {
             bitcoinScript: '🔒 Path 1: Any 1-of-3 Primary keys after 20 blocks → 🕐 Path 2: Recovery Key after 19 blocks → 💰 Path 3: 2-of-2 Backup multisig (immediate) → ⏰ Path 4: Final Recovery key after 18 blocks',
             useCase: 'Professional Bitcoin custody solution with graduated recovery paths. Liana Wallet implements a sophisticated multi-tier system where different spending conditions become available over time. Primary keys provide flexible 1-of-3 access after short delay, recovery keys activate after medium delay, backup multisig works immediately, and final recovery ensures funds are never lost.',
             technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on Liana Wallet Documentation<br><a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md</a>'
+        },
+        'taproot_multibranch': {
+            title: '🌳 Taproot Multi-Branch: or_d + Timelock Optimization',
+            structure: 'or_d(pk(Julia),and_v(v:pk(Karl),older(144))) → DUP-IF pattern with timelocked fallback',
+            bitcoinScript: 'Taproot Single-leaf: DUP IF <Julia> CHECKSIG ELSE <Karl> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF<br>Taproot Multi-leaf: Julia gets key-path OR script-leaf, Karl gets separate timelock script-leaf',
+            useCase: 'Perfect example of Taproot\'s smart optimization for OR conditions with different complexities. Julia (simple pk) vs Karl (complex pk + timelock). In single-leaf mode, creates traditional or_d logic. In multi-leaf mode, Taproot optimizes by giving Julia both key-path AND script-path options while Karl gets his own timelock script.',
+            technical: '💡 Why or_d + Taproot brilliance: or_d uses DUP-IF pattern perfect for unequal branch complexity. Julia\'s simple pk() is optimal for either key-path or script-leaf spending. Karl\'s complex and_v(v:pk,older(144)) requires script revelation anyway. Taproot multi-leaf mode creates: 1) Julia as internal key (key-path spending), 2) Julia pk() as script-leaf, 3) Karl\'s timelock script as separate leaf. Result: Julia gets 2 spending methods (most efficient key-path + backup script-path), Karl gets timelock protection. This demonstrates Taproot\'s ability to optimize mixed complexity conditions.'
         }
     };
     
@@ -5879,6 +6999,15 @@ window.showPolicyDescription = function(exampleId) {
             efficiency: '⚡ **Efficiency:** All paths require timelock verification plus threshold logic (~200+ bytes), but prevents any spending before activation date.',
             security: '✅ **Security benefits:** Absolute prevention of early spending (even with all signatures), requires majority consensus after activation, immutable schedule prevents coercion or impulsive changes.',
             bestFor: '✅ **Best for:** Vesting schedules, trust funds, scheduled distributions, escrow services, any scenario requiring guaranteed future activation with group control, regulatory compliance requiring time delays'
+        },
+        'multi_branch': {
+            title: '📄 Multi-Branch OR Policy - Taproot Key-Path Optimization',
+            conditions: '🔓 David: Key-path spending (most efficient - just a signature)\n🔓 Helen: Script-path spending (reveal script + signature)\n🔓 Uma: Script-path spending (reveal script + signature)',
+            useCase: '**Taproot Smart Optimization:** This policy demonstrates how Taproot automatically optimizes OR conditions. Instead of 3 script leaves, it creates: David as the internal key (key-path spending) + Helen/Uma as script leaves. David gets the most efficient spending path, while Helen/Uma share the script tree.',
+            examples: '💡 **Perfect Optimization:** The miniscript library intelligently chose David for key-path spending (no script revelation needed) and put Helen/Uma in the script tree. This is more efficient than forcing all three into script paths. Switch to "Taproot compilation (multi-leaf TapTree)" mode to see the tr(David,{pk(Helen),pk(Uma)}) structure.',
+            efficiency: '⚡ **Efficiency:** David spends with just 64 bytes (signature only). Helen/Uma each need ~34 bytes script + 64 bytes signature = ~98 bytes. Key-path spending is the most efficient option in Taproot. Total possible: key-path (64B) vs script-path (~98B).',
+            security: '✅ **Security benefits:** David\'s spending reveals no scripts or other participants. Helen/Uma spending only reveals their specific script, not David\'s key or the other person\'s script. Maximum privacy through selective revelation.',
+            bestFor: '✅ **Best for:** Scenarios where one party (David) is primary/preferred and others are alternatives, inheritance with preferred heir + backups, business with primary signer + emergency alternatives, demonstrating Taproot\'s intelligent optimization over naive 3-leaf structures'
         }
     };
     
@@ -5953,7 +7082,7 @@ window.showMiniscriptDescription = function(exampleId) {
             technical: '💡 s: wrapper swaps stack elements for proper evaluation'
         },
         'complex': {
-            title: '⚙️ Complex AND/OR: Why and_v + or_b + Wrappers',
+            title: '⚙️ AND/OR: Why and_v + or_b + Wrappers',
             structure: 'and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie))) → Alice AND (Bob OR Charlie)',
             bitcoinScript: '<Alice> CHECKSIGVERIFY <Bob> CHECKSIG SWAP <Charlie> CHECKSIG BOOLOR',
             useCase: 'Alice must always sign, plus either Bob or Charlie. Demonstrates wrapper logic: v: for VERIFY, s: for stack SWAP.',
@@ -6065,11 +7194,11 @@ window.showMiniscriptDescription = function(exampleId) {
             technical: '💡 Uses CLTV (CheckLockTimeVerify) for absolute time constraints'
         },
         'vault_complex': {
-            title: '🏦 Enterprise Multi-Tier Vault System',
-            structure: 'Nested or_i structure: 5 spending paths from most secure (immediate) to most accessible (14-day delay)',
-            bitcoinScript: '🚨 Emergency: VaultKey3+VaultKey4 (immediate) → 📅 Tier 1: VaultKey3 OR 2-of-3 keys (after 1 day) → 📅 Tier 2: VaultKey4 OR 2-of-3 keys (after 3 days) → 📅 Tier 3: VaultKey2 OR 2-of-5 keys (after 7 days) → 📅 Final: VaultKey1 OR TestnetKey (after 14 days)',
-            useCase: 'Corporate treasury with graduated security model. Immediate access requires 2 directors (VaultKey3+VaultKey4). As time passes, recovery becomes easier but requires waiting longer. Perfect for balancing security vs. accessibility in enterprise custody.',
-            technical: '💡 Why or_i for vault design: Each or_i branch represents a different security/time tradeoff. Spender chooses which path to execute - immediate high security or delayed lower security. The nested structure creates 5 distinct spending conditions with clear priority ordering from most to least secure.'
+            title: '🏦 Enterprise Multi-Tier Vault System with Range Descriptors',
+            structure: 'Nested or_i structure: 5 spending paths from most secure (immediate) to most accessible (2-day delay)',
+            bitcoinScript: '🚨 Emergency: VaultKey14+VaultKey19 (immediate) → 📅 Tier 1: VaultKey12 OR 2-of-3 keys (after 2 hours) → 📅 Tier 2: VaultKey16 OR 2-of-3 keys (after 4 hours) → 📅 Tier 3: VaultKey6 OR 2-of-5 keys (after 1 day) → 📅 Final: VaultKey1 OR VaultKey4 (after 2 days)',
+            useCase: 'Advanced corporate treasury using range descriptors with graduated security model. Immediate access requires 2 executive keys (VaultKey14+VaultKey19). As time passes, recovery becomes easier but requires waiting longer. Each key uses range descriptors (/<10;11>/*) enabling multiple receive addresses while maintaining spending conditions. Perfect for balancing security vs. accessibility in enterprise custody with HD wallet support.',
+            technical: '💡 Why or_i for vault design: Each or_i branch represents a different security/time tradeoff. Spender chooses which path to execute - immediate high security or delayed lower security. The nested structure creates 5 distinct spending conditions with clear priority ordering. Range descriptors allow each spending path to support multiple addresses from the same keys, enabling better privacy and address management without changing the security model.'
         },
         'joint_custody': {
             title: '🔐 3-Key Joint Custody: Negative Control System',
@@ -6084,6 +7213,13 @@ window.showMiniscriptDescription = function(exampleId) {
             bitcoinScript: '🔒 Path 1: Any 1-of-3 Primary keys after 20 blocks → 🕐 Path 2: Recovery Key after 19 blocks → 💰 Path 3: 2-of-2 Backup multisig (immediate) → ⏰ Path 4: Final Recovery key after 18 blocks',
             useCase: 'Professional Bitcoin custody solution with graduated recovery paths. Liana Wallet implements a sophisticated multi-tier system where different spending conditions become available over time. Primary keys provide flexible 1-of-3 access after short delay, recovery keys activate after medium delay, backup multisig works immediately, and final recovery ensures funds are never lost.',
             technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on Liana Wallet Documentation<br><a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md</a>'
+        },
+        'taproot_multibranch': {
+            title: '🌳 Taproot Multi-Branch: or_d + Timelock Optimization',
+            structure: 'or_d(pk(Julia),and_v(v:pk(Karl),older(144))) → DUP-IF pattern with timelocked fallback',
+            bitcoinScript: 'Taproot Single-leaf: DUP IF <Julia> CHECKSIG ELSE <Karl> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF<br>Taproot Multi-leaf: Julia gets key-path OR script-leaf, Karl gets separate timelock script-leaf',
+            useCase: 'Perfect example of Taproot\'s smart optimization for OR conditions with different complexities. Julia (simple pk) vs Karl (complex pk + timelock). In single-leaf mode, creates traditional or_d logic. In multi-leaf mode, Taproot optimizes by giving Julia both key-path AND script-path options while Karl gets his own timelock script.',
+            technical: '💡 Why or_d + Taproot brilliance: or_d uses DUP-IF pattern perfect for unequal branch complexity. Julia\'s simple pk() is optimal for either key-path or script-leaf spending. Karl\'s complex and_v(v:pk,older(144)) requires script revelation anyway. Taproot multi-leaf mode creates: 1) Julia as internal key (key-path spending), 2) Julia pk() as script-leaf, 3) Karl\'s timelock script as separate leaf. Result: Julia gets 2 spending methods (most efficient key-path + backup script-path), Karl gets timelock protection. This demonstrates Taproot\'s ability to optimize mixed complexity conditions.'
         }
     };
     
@@ -7004,7 +8140,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 },
                 'miniscript-vault_complex': () => {
                     if (window.showMiniscriptDescription) window.showMiniscriptDescription('vault_complex');
-                    if (window.loadExample) window.loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(TestnetKey)),after(1768435200)),and_v(or_c(pkh(VaultKey2),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey),a:pkh(VaultKey1))),after(1767830400))),and_v(or_c(pkh(VaultKey4),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2),a:pkh(TestnetKey))),after(1767484800))),and_v(or_c(pkh(VaultKey3),v:thresh(2,pkh(VaultKey3),a:pkh(VaultKey4),a:pkh(VaultKey2))),after(1767312000))),and_v(v:pk(VaultKey3),pk(VaultKey4)))', 'vault_complex');
+                    if (window.loadExample) window.loadExample('or_i(or_i(or_i(or_i(and_v(vc:or_i(pk_h(VaultKey1),pk_h(VaultKey4)),after(1753305229)),and_v(or_c(pkh(VaultKey6),v:thresh(2,pkh(VaultKey10),a:pkh(VaultKey15),a:pkh(VaultKey7),a:pkh(VaultKey2),a:pkh(VaultKey5))),after(1753298029))),and_v(or_c(pkh(VaultKey16),v:thresh(2,pkh(VaultKey11),a:pkh(VaultKey17),a:pkh(VaultKey8),a:pkh(VaultKey3))),after(1753290829))),and_v(or_c(pkh(VaultKey12),v:thresh(2,pkh(VaultKey13),a:pkh(VaultKey18),a:pkh(VaultKey9))),after(1753283629))),and_v(v:pk(VaultKey14),pk(VaultKey19)))', 'vault_complex');
                 }
             };
             
@@ -7180,6 +8316,77 @@ window.toggleMiniscriptDescription = function() {
             toggle.textContent = '[+]';
             window.descriptionStates.miniscriptCollapsed = true;
         }
+    }
+};
+
+// Taproot Mode Switching from Miniscript
+window.switchTaprootModeFromMiniscript = function(mode) {
+    console.log(`Switching to taproot mode from miniscript: ${mode}`);
+    
+    // Update radio button states
+    const radioButtons = document.querySelectorAll('input[name="taproot-miniscript-mode"]');
+    radioButtons.forEach(radio => {
+        if (radio.value === mode) {
+            radio.checked = true;
+        }
+    });
+    
+    // Store the selected mode globally
+    window.currentTaprootMode = mode;
+    
+    // Re-compile the current miniscript with the new mode
+    if (window.compiler) {
+        window.compiler.compileExpression();
+    }
+};
+
+// Taproot Mode Switching from Policy
+window.switchTaprootMode = function(mode) {
+    console.log(`Switching to taproot mode: ${mode}`);
+    
+    // Update radio button states (they handle themselves, but ensure consistency)
+    const radioButtons = document.querySelectorAll('input[name="taproot-mode"]');
+    radioButtons.forEach(radio => {
+        if (radio.value === mode) {
+            radio.checked = true;
+        }
+    });
+    
+    // Store the selected mode globally
+    window.currentTaprootMode = mode;
+    
+    // Re-compile the current policy with the new mode
+    const policyInput = document.getElementById('policy-input');
+    if (policyInput && policyInput.textContent && policyInput.textContent.trim()) {
+        // Need to add flag to Rust compilation
+        console.log(`Re-compiling policy with ${mode} mode`);
+        window.compiler.compilePolicy();
+    } else {
+        console.log('No policy to re-compile or policy input is empty');
+    }
+};
+
+// Branch Loading for Taproot Multi-leaf
+window.loadBranchMiniscript = function(miniscript) {
+    console.log(`Loading branch miniscript: ${miniscript}`);
+    
+    // Remove any tr() wrapper if it exists using helper function
+    let cleanMiniscript = miniscript;
+    if (cleanMiniscript.startsWith('tr(')) {
+        const parsed = window.compiler.parseTrDescriptor(cleanMiniscript);
+        if (parsed && parsed.treeScript) {
+            cleanMiniscript = parsed.treeScript;
+        }
+    }
+    
+    const miniscriptInput = document.getElementById('expression-input');
+    if (miniscriptInput) {
+        miniscriptInput.textContent = cleanMiniscript;
+        window.compiler.highlightMiniscriptSyntax(true);
+        window.compiler.positionCursorAtEnd(miniscriptInput);
+        
+        // Don't auto-compile, just load the text for user review
+        console.log('Branch loaded. User can manually compile when ready.');
     }
 };
 
