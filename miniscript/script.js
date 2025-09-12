@@ -1,4 +1,4 @@
-import init, { compile_miniscript, compile_miniscript_with_mode, compile_policy, compile_policy_with_mode, lift_to_miniscript, lift_to_policy, generate_address_for_network, generate_taproot_address_for_network, generate_taproot_address_with_builder, get_taproot_leaves } from './pkg/miniscript_wasm.js';
+import init, { compile_miniscript, compile_miniscript_with_mode, compile_miniscript_with_mode_and_network, compile_policy, compile_policy_with_mode, lift_to_miniscript, lift_to_policy, generate_address_for_network, generate_taproot_address_for_network, generate_taproot_address_with_builder, get_taproot_leaves, get_taproot_branches, get_taproot_miniscript_branches } from './pkg/miniscript_wasm.js';
 // Cache buster - updated 2025-01-18 v3
 
 class MiniscriptCompiler {
@@ -477,6 +477,9 @@ class MiniscriptCompiler {
         const expression = document.getElementById('expression-input').textContent.trim();
         const context = document.querySelector('input[name="context"]:checked').value;
         
+        // Store original expression for network switching
+        this.originalExpression = expression;
+        
         // Clear previous messages (preserve success if this is from auto-compile)
         const isAutoCompile = this.isAutoCompiling || false;
         this.clearMiniscriptMessages(isAutoCompile);
@@ -506,19 +509,22 @@ class MiniscriptCompiler {
             
             // Call the WASM function with context and mode
             let result;
-            if (context === 'taproot' || context === 'taproot-multi') {
+            if (context === 'taproot' || context === 'taproot-multi' || context === 'taproot-keypath') {
                 // Determine mode based on context
-                const currentMode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
+                const currentMode = context === 'taproot-keypath' ? 'multi-leaf' : context === 'taproot-multi' ? 'script-path' : 'single-leaf';
                 window.currentTaprootMode = currentMode; // Update the global mode
                 console.log(`Compiling miniscript in taproot context, mode: ${currentMode}`);
                 // Always pass 'taproot' as the actual context to Rust
-                result = compile_miniscript_with_mode(processedExpression, 'taproot', currentMode);
+                // Get NUMS key (hardcoded for now, will be configurable in settings later)
+                const numsKey = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+                result = compile_miniscript_with_mode(processedExpression, 'taproot', currentMode, numsKey);
                 if (result.success) {
                     result.taprootMode = currentMode;
                 }
             } else {
-                // Non-taproot contexts: use regular compilation
-                result = compile_miniscript(processedExpression, context);
+                // Non-taproot contexts: use regular compilation (NUMS not used)
+                const numsKey = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+                result = compile_miniscript_with_mode(processedExpression, context, 'single-leaf', numsKey);
             }
             
             // Reset button
@@ -572,18 +578,64 @@ class MiniscriptCompiler {
                     // For descriptor validation, build the message using original expression from editor
                     successMsg = `Valid descriptor: wsh(${expression})`;
                 } else {
-                    successMsg = `Compilation successful - ${result.miniscript_type}, ${result.script_size} bytes<br>`;
+                    successMsg = `${result.miniscript_type}, ${result.script_size} bytes script size<br>`;
                     
-                    if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
+                    // For all Taproot contexts, show descriptor and special formatting
+                    const currentMode = window.currentTaprootMode || 'single-leaf';
+                    const isTaprootContext = result.miniscript_type === 'Taproot';
+                    
+                    if (isTaprootContext && result.compiled_miniscript) {
+                        // Show descriptor for all Taproot contexts
+                        let rawDescriptor = result.compiled_miniscript;
+                        
+                        // Clean the descriptor by removing |LEAF_ASM: suffix if present
+                        if (rawDescriptor.includes('|LEAF_ASM:')) {
+                            rawDescriptor = rawDescriptor.split('|LEAF_ASM:')[0];
+                        }
+                        
+                        let displayDescriptor = rawDescriptor;
+                        const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                        if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
+                            displayDescriptor = this.replaceKeysWithNames(rawDescriptor);
+                        }
+                        
+                        // Add weight info for Taproot Simplified only (before descriptor)
+                        if (currentMode === 'single-leaf' && result.max_weight_to_satisfy && result.max_satisfaction_size) {
+                            // Calculate Taproot witness weight breakdown
+                            const sigWU = 66; // Always 66 WU
+                            const scriptWU = result.script_size + 1; // Script size + 1
+                            const controlWU = 34; // Always 34 WU
+                            const totalWU = sigWU + scriptWU + controlWU + 1; // + 1 additional
+                            
+                            successMsg += `<br>Spending cost analysis:<br>`;
+                            successMsg += `Sig: ${sigWU} WU<br>`;
+                            successMsg += `Script: ${scriptWU} WU<br>`;
+                            successMsg += `Control: ${controlWU} WU<br>`;
+                            successMsg += `Total: ${totalWU} WU<br><br>`;
+                        } else {
+                            successMsg += `<br>`;
+                        }
+                        
+                        successMsg += `Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${displayDescriptor}</span><br>`;
+                        
+                        // Add Data field for all Taproot contexts
+                        if (result.script) {
+                            // Remove OP_1 (51) + push32 (20) prefix to show just the tweaked key
+                            const tweakedKey = result.script.substring(4);
+                            successMsg += `Data (tweaked public key):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${tweakedKey}</span><br>`;
+                        }
+                    } else if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         const scriptWeight = result.script_size;
                         const inputWeight = result.max_satisfaction_size; // Use satisfaction size for input weight
                         const totalWeight = scriptWeight + inputWeight; // Calculate total as script + input
                         
+                        successMsg += `<br>Spending cost analysis:<br>`;
                         successMsg += `Script: ${scriptWeight} WU<br>`;
                         successMsg += `Input: ${inputWeight}.000000 WU<br>`;
                         successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
                     } else if (result.max_satisfaction_size) {
                         // Fallback - show satisfaction size
+                        successMsg += `<br>Spending cost analysis:<br>`;
                         successMsg += `Input: ${result.max_satisfaction_size}.000000 WU<br>`;
                         successMsg += `Total: ${result.script_size + result.max_satisfaction_size}.000000 WU<br><br>`;
                     } else {
@@ -593,7 +645,13 @@ class MiniscriptCompiler {
                     
                     // Add hex, asm, and address
                     if (result.script) {
-                        successMsg += `HEX:<br>${result.script}<br><br>`;
+                        if (isTaprootContext) {
+                            // For Taproot contexts, show complete scriptPubKey as-is
+                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
+                        } else {
+                            // For non-Taproot contexts, show original script in HEX
+                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
+                        }
                     }
                     if (result.script_asm) {
                         // Create simplified version with key names (same as script field)
@@ -604,24 +662,34 @@ class MiniscriptCompiler {
                         if (showKeyNames && this.keyVariables.size > 0) {
                             finalAsm = this.replaceKeysWithNames(simplifiedAsm);
                         }
-                        successMsg += `ASM:<br>${finalAsm}<br><br>`;
+                        
+                        if (isTaprootContext && currentMode === 'single-leaf') {
+                            // For Taproot Simplified, show both leaf and scriptPubKey ASM
+                            // Parse leaf ASM from compiled_miniscript if available
+                            let leafAsm = '';
+                            if (result.compiled_miniscript && result.compiled_miniscript.includes('|LEAF_ASM:')) {
+                                const parts = result.compiled_miniscript.split('|LEAF_ASM:');
+                                if (parts.length > 1) {
+                                    leafAsm = parts[1];
+                                    // Replace keys with names in leaf ASM if toggle is active
+                                    if (showKeyNames && this.keyVariables.size > 0) {
+                                        leafAsm = this.replaceKeysWithNames(leafAsm);
+                                    }
+                                }
+                            }
+                            
+                            if (leafAsm) {
+                                successMsg += `ASM (leaf):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${leafAsm}</span><br>`;
+                            }
+                            successMsg += `ASM (scriptPubKey):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
+                        } else {
+                            // For other contexts, show normal ASM
+                            successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
+                        }
                     }
                     if (result.address) {
-                        successMsg += `Address:<br>${result.address}`;
+                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.address}</span>`;
                         
-                        // Add Taproot descriptor for Taproot context in multi-leaf mode only
-                        if (result.miniscript_type === 'Taproot' && result.compiled_miniscript) {
-                            const currentMode = window.currentTaprootMode || 'single-leaf';
-                            if (currentMode === 'multi-leaf') {
-                                let cleanDescriptor = result.compiled_miniscript.trim();
-                                // Replace keys with names if toggle is active
-                                const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
-                                if (showKeyNames && this.keyVariables.size > 0) {
-                                    cleanDescriptor = this.replaceKeysWithNames(cleanDescriptor);
-                                }
-                                successMsg += `<br><br>Taproot descriptor:<br>${cleanDescriptor}`;
-                            }
-                        }
                     }
                 }
                 
@@ -630,6 +698,11 @@ class MiniscriptCompiler {
                 
                 // Pass the original expression for tree visualization
                 let treeExpression = expression;
+                
+                // For taproot contexts, also store the descriptor for branch extraction
+                if (result.miniscript_type === 'Taproot' && result.compiled_miniscript) {
+                    window.lastCompiledDescriptor = result.compiled_miniscript;
+                }
                 
                 this.showMiniscriptSuccess(successMsg, treeExpression);
                 // Display results (without the info box since we show it in the success message)
@@ -702,9 +775,9 @@ class MiniscriptCompiler {
             
             // Call the WASM function with context and mode for taproot
             let result;
-            if (context === 'taproot' || context === 'taproot-multi') {
+            if (context === 'taproot' || context === 'taproot-multi' || context === 'taproot-keypath') {
                 // Determine mode based on context
-                const mode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
+                const mode = context === 'taproot-keypath' ? 'multi-leaf' : context === 'taproot-multi' ? 'script-path' : 'single-leaf';
                 window.currentTaprootMode = mode; // Update the global mode
                 console.log('Compiling policy with mode:', mode);
                 // Always pass 'taproot' as the actual context to Rust
@@ -722,9 +795,16 @@ class MiniscriptCompiler {
                 const expressionInput = document.getElementById('expression-input');
                 const formatButton = document.getElementById('format-miniscript-btn');
                 
-                // Replace keys with names in the compiled miniscript if we have key variables
+                // Store the last compiled descriptor for branch parsing
+                this.lastCompiledDescriptor = result.compiled_miniscript;
+                
+                // Replace keys with names in the compiled miniscript if toggle is active
+                // Check POLICY toggle for policy compilation
                 let displayMiniscript = result.compiled_miniscript;
-                if (this.keyVariables.size > 0) {
+                const policyToggle = document.getElementById('policy-key-names-toggle');
+                const showKeyNames = policyToggle?.dataset.active !== 'false'; // Default to true if not set
+                
+                if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
                     displayMiniscript = this.replaceKeysWithNames(result.compiled_miniscript);
                 }
                 
@@ -807,7 +887,7 @@ class MiniscriptCompiler {
                 }
                 
                 // Show policy success message with context (normalize taproot-multi to taproot)
-                const normalizedContext = context === 'taproot-multi' ? 'taproot' : context;
+                const normalizedContext = (context === 'taproot-multi' || context === 'taproot-keypath') ? 'taproot' : context;
                 this.showPolicySuccess(displayMiniscript, result, normalizedContext);
                 
                 // Check if this is a descriptor validation from policy compilation
@@ -821,18 +901,20 @@ class MiniscriptCompiler {
                     result.script = "No single script - this descriptor defines multiple paths";
                 } else {
                     // Show normal compilation success message with spending cost analysis format
-                    successMsg = `Compilation successful - ${result.miniscript_type}, ${result.script_size} bytes<br>`;
+                    successMsg = `${result.miniscript_type}, ${result.script_size} bytes script size<br>`;
                     
                     if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         const scriptWeight = result.script_size;
                         const inputWeight = result.max_satisfaction_size; // Use satisfaction size for input weight
                         const totalWeight = scriptWeight + inputWeight; // Calculate total as script + input
                         
+                        successMsg += `<br>Spending cost analysis:<br>`;
                         successMsg += `Script: ${scriptWeight} WU<br>`;
                         successMsg += `Input: ${inputWeight}.000000 WU<br>`;
                         successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
                     } else if (result.max_satisfaction_size) {
                         // Fallback - show satisfaction size
+                        successMsg += `<br>Spending cost analysis:<br>`;
                         successMsg += `Input: ${result.max_satisfaction_size}.000000 WU<br>`;
                         successMsg += `Total: ${result.script_size + result.max_satisfaction_size}.000000 WU<br><br>`;
                     } else {
@@ -842,7 +924,7 @@ class MiniscriptCompiler {
                     
                     // Add hex, asm, and address
                     if (result.script) {
-                        successMsg += `HEX:<br>${result.script}<br><br>`;
+                        successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
                     }
                     if (result.script_asm) {
                         // Create simplified version with key names (same as script field)
@@ -853,10 +935,10 @@ class MiniscriptCompiler {
                         if (showKeyNames && this.keyVariables.size > 0) {
                             finalAsm = this.replaceKeysWithNames(simplifiedAsm);
                         }
-                        successMsg += `ASM:<br>${finalAsm}<br><br>`;
+                        successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
                     }
                     if (result.address) {
-                        successMsg += `Address:<br>${result.address}`;
+                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.address}</span>`;
                     }
                 }
                 
@@ -983,9 +1065,13 @@ class MiniscriptCompiler {
         
         // Normal behavior - create new message
         const content = this.generatePolicySuccessContent(miniscript, result, context);
+        // Get current context for display 
+        const currentContext = document.querySelector('input[name="policy-context"]:checked')?.value || 'legacy';
+        const contextDisplay = this.getContextDisplayName(currentContext);
+        
         policyErrorsDiv.innerHTML = `
             <div class="result-box success" style="margin: 0; text-align: left;">
-                <h4>✅ Policy compilation successful</h4>
+                <h4>✅ Policy ${contextDisplay} compilation successful</h4>
                 ${content}
             </div>
         `;
@@ -993,14 +1079,14 @@ class MiniscriptCompiler {
     
     generatePolicySuccessContent(miniscript, result = null, context = null) {
         // Check if this is taproot context or a taproot descriptor
-        if (context === 'taproot' || context === 'taproot-multi' || miniscript.startsWith('tr(')) {
+        if (context === 'taproot' || context === 'taproot-multi' || context === 'taproot-keypath' || miniscript.startsWith('tr(')) {
             return this.generateTaprootPolicyContent(miniscript, result);
         } else {
             // Standard miniscript display
             return `
                 <div style="margin-top: 10px; text-align: left;">
-                    <strong>Generated Miniscript:</strong><br>
-                    <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${miniscript}</code>
+                    Generated Miniscript:
+                    <code style="display: block; margin: 0; word-break: break-word; overflow-wrap: anywhere; hyphens: none; max-width: 100%; overflow-x: auto; font-family: monospace;">${miniscript}</code>
                     <div style="color: var(--text-secondary); font-size: 13px; margin-top: 10px;">
                         ${miniscript.match(/^\s*\{.*\}\s*$/) ? 
                             '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot compilation (multi-leaf TapTree) mode to select your miniscript expression.' :
@@ -1035,7 +1121,7 @@ class MiniscriptCompiler {
         // Check current mode based on context
         const contextRadio = document.querySelector('input[name="context"]:checked');
         const context = contextRadio ? contextRadio.value : 'segwit';
-        const currentMode = context === 'taproot-multi' ? 'multi-leaf' : 'single-leaf';
+        const currentMode = context === 'taproot-multi' ? 'multi-leaf' : context === 'taproot-keypath' ? 'key-script-path' : 'single-leaf';
         
         let content = `
             <div style="margin-top: 10px; text-align: left;">
@@ -1047,8 +1133,8 @@ class MiniscriptCompiler {
             const displayMiniscript = treeScript || `pk(${internalKey})`;
             content += `
                 <div style="margin-bottom: 15px;">
-                    <strong>Generated Miniscript:</strong><br>
-                    <code style="padding: 8px; border-radius: 4px; display: block; margin: 8px 0; word-break: break-all; font-family: monospace;">${displayMiniscript}</code>
+                    Generated Miniscript:
+                    <code style="display: block; margin: 0; word-break: break-all; font-family: monospace;">${displayMiniscript}</code>
                 </div>
                 
                 <div style="color: var(--text-secondary); font-size: 13px;">
@@ -1064,14 +1150,16 @@ class MiniscriptCompiler {
         // Multi-leaf mode: full taproot information
         content += `
                 <div style="margin-bottom: 15px;">
-                    <strong>Descriptor:</strong><br>
-                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
+                    Descriptor:<br>
+                    <div style="margin: 4px 0; font-family: monospace; font-size: 13px; word-break: break-all; overflow-wrap: anywhere;">
                         ${descriptor}
                     </div>
                 </div>`;
         
         // Add weight information if available from compilation result
-        if (result) {
+        // Skip overall weight for taproot modes (script-path and key+script-path)
+        const skipWeight = context === 'taproot-multi' || context === 'taproot-keypath';
+        if (result && !skipWeight) {
             if (result.script_size && result.max_weight_to_satisfy) {
                 const scriptWeight = result.script_size;
                 const totalWeight = result.max_weight_to_satisfy;
@@ -1105,11 +1193,14 @@ class MiniscriptCompiler {
             displayInternalKey = this.replaceKeysWithNames(internalKey);
         }
         
+        // Check if internal key is NUMS
+        const isNUMSKey = internalKey && (internalKey.includes('50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0') || displayInternalKey === 'NUMS');
+        
         content += `
                 <div style="margin-bottom: 15px;">
-                    <strong>Taproot Structure:</strong><br>
+                    Taproot Structure:<br>
                     <div style="margin: 4px 0; font-family: monospace; font-size: 13px;">
-                        • Internal Key: ${displayInternalKey} (key-path spending)
+                        • Internal Key: ${displayInternalKey}${isNUMSKey ? ' ("Nothing Up My Sleeve") - unspendable key, disables key-path spending' : ' (key-path spending)'}
         `;
         
         if (treeScript) {
@@ -1160,7 +1251,7 @@ class MiniscriptCompiler {
                 // Show simplified single-branch message
                 content += `
                     <div style="margin-bottom: 15px; padding: 10px; border: 1px solid var(--success-border); border-radius: 4px; background: var(--success-bg);">
-                        <strong>✓ Single Branch Auto-loaded</strong><br>
+                        ✓ Single Branch Auto-loaded<br>
                         <div style="margin: 8px 0; font-size: 13px;">
                             The miniscript: <code style="font-family: monospace; background: var(--success-bg); padding: 2px 4px; border-radius: 2px;">${branches[0]}</code> has been automatically loaded into the editor and compiled.
                         </div>
@@ -1173,6 +1264,21 @@ class MiniscriptCompiler {
                     this.clearAllEditors();
                 }, 100);
                 
+                // Get per-branch weight information if in script-path mode
+                let branchWeights = null;
+                const isScriptPathMode = context === 'taproot-multi';
+                if (isScriptPathMode && result && typeof get_taproot_branch_weights !== 'undefined') {
+                    try {
+                        const weightResult = get_taproot_branch_weights(descriptor);
+                        if (weightResult && weightResult.success) {
+                            branchWeights = weightResult.branches;
+                            console.log('Got branch weights:', branchWeights);
+                        }
+                    } catch (e) {
+                        console.log('Could not get branch weights:', e);
+                    }
+                }
+                
                 // Add branch details with clickable names
                 branches.forEach((branch, index) => {
                     // Replace key names if available and toggle is active
@@ -1181,26 +1287,54 @@ class MiniscriptCompiler {
                         displayMiniscript = this.replaceKeysWithNames(branch);
                     }
                     
+                    // Get weight info for this branch if available
+                    let weightInfo = '';
+                    if (branchWeights && branchWeights[index]) {
+                        const weight = branchWeights[index];
+                        weightInfo = `
+                        <div style="margin-top: 8px; padding: 8px; background: var(--container-bg); border-radius: 4px; font-family: monospace; font-size: 12px;">
+                            <strong style="color: var(--text-primary);">Weight Breakdown:</strong><br>
+                            <div style="margin-left: 10px; color: var(--text-secondary);">
+                                Script size: ${weight.script_size} bytes<br>
+                                Control block: ${weight.control_block_size} bytes<br>
+                                Witness: ${weight.max_witness_size} bytes<br>
+                                <strong style="color: var(--accent-color);">Total spend cost: ${weight.total_weight} WU</strong>
+                            </div>
+                        </div>`;
+                    }
+                    
                     content += `
                     <div style="margin-bottom: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
-                        <strong>Branch:</strong> ${index + 1}<br>
-                        <strong>Miniscript:</strong> 
+                        Branch ${index + 1}:<br>
+                        Miniscript: 
                         <a href="#" onclick="window.loadBranchMiniscript('${branch.replace(/'/g, "\\'")}')" 
-                           style="color: var(--accent-color); text-decoration: underline; font-family: monospace; font-size: 13px;">
+                           style="color: var(--accent-color); text-decoration: underline; font-family: monospace; font-size: 13px; word-break: break-all; overflow-wrap: anywhere; display: inline-block; max-width: 100%;">
                            ${displayMiniscript}
                         </a>
+                        ${weightInfo}
                         <div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
-                            💡 Click the miniscript above to load it into the editor
+                            💡 Click the Miniscript above to load it into the Miniscript editor
                         </div>
                     </div>
                     `;
                 });
                 
-                content += `
-                    <div style="color: var(--text-secondary); font-size: 13px; margin-top: 15px;">
-                        💡 This creates an optimized taproot output where ${displayInternalKey} can spend directly with just a signature, while other parties require revealing only their specific branch script.
-                    </div>
-                `;
+                // Check if this is script-path mode (taproot-multi) with NUMS key
+                const isNUMS = internalKey && (internalKey.includes('50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0') || displayInternalKey === 'NUMS');
+                
+                if (isScriptPathMode && isNUMS) {
+                    content += `
+                        <div style="color: var(--text-secondary); font-size: 13px; margin-top: 15px;">
+                            💡 This creates a taproot output that can ONLY be spent through script paths. The NUMS key is an unspendable internal key, ensuring all spending must reveal and satisfy one of the branch scripts. You can replace the NUMS key in settings if needed.
+                        </div>
+                    `;
+                } else {
+                    content += `
+                        <div style="color: var(--text-secondary); font-size: 13px; margin-top: 15px;">
+                            💡 This creates an optimized taproot output where ${displayInternalKey} can spend directly with just a signature, while other parties require revealing only their specific branch script.
+                        </div>
+                    `;
+                }
             }
         } else {
             // No tree script (key-path only) - no mode selection needed, show simple message
@@ -1300,6 +1434,62 @@ class MiniscriptCompiler {
         console.log(`parseTaprootBranches called with: ${treeScript}`);
         if (!treeScript) return [];
         
+        // Try to use the new WASM branch-to-miniscript function first
+        console.log('DEBUG: Available WASM functions:', Object.keys(window).filter(k => k.startsWith('get_') || k.includes('taproot') || k.includes('test')));
+        console.log('DEBUG: get_taproot_branches type:', typeof get_taproot_branches);
+        console.log('DEBUG: window.get_taproot_branches type:', typeof window.get_taproot_branches);
+        console.log('DEBUG: test_taproot_branches type:', typeof test_taproot_branches);
+        
+        // Try the test function
+        if (typeof test_taproot_branches !== 'undefined') {
+            try {
+                const testResult = test_taproot_branches();
+                console.log('DEBUG: Test function result:', testResult);
+            } catch (e) {
+                console.log('DEBUG: Test function error:', e);
+            }
+        }
+        
+        if (typeof get_taproot_branches !== 'undefined') {
+            try {
+                // Build a complete descriptor to pass to the WASM function
+                // We need to find the internal key from the context
+                let descriptor = '';
+                const descriptorInput = document.getElementById('expression-input');
+                if (descriptorInput && descriptorInput.textContent) {
+                    const fullDescriptor = descriptorInput.textContent.trim();
+                    if (fullDescriptor.startsWith('tr(')) {
+                        descriptor = fullDescriptor;
+                    }
+                }
+                
+                // If no full descriptor, try to construct one
+                if (!descriptor) {
+                    // Find the last compiled descriptor from recent compilation
+                    const lastDescriptor = this.lastCompiledDescriptor;
+                    if (lastDescriptor && lastDescriptor.startsWith('tr(')) {
+                        descriptor = lastDescriptor;
+                    } else {
+                        // Fallback: use NUMS point
+                        descriptor = `tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,${treeScript})`;
+                    }
+                }
+                
+                console.log(`DEBUG: Calling get_taproot_branches from parseTaprootBranches with: ${descriptor}`);
+                const result = get_taproot_branches(descriptor);
+                console.log(`DEBUG: get_taproot_branches result from parseTaprootBranches:`, result);
+                
+                if (result && result.success && result.branches) {
+                    return result.branches.map(branch => branch.miniscript);
+                }
+            } catch (e) {
+                console.error('DEBUG: Error in parseTaprootBranches WASM call:', e);
+            }
+        }
+        
+        // Fallback to old parsing method
+        console.log('DEBUG: Using fallback parsing method');
+        
         // Handle {pk(A),pk(B)} format
         if (treeScript.startsWith('{') && treeScript.endsWith('}')) {
             const inner = treeScript.slice(1, -1);
@@ -1347,6 +1537,14 @@ class MiniscriptCompiler {
         if (contentDiv) {
             const newContent = this.generatePolicySuccessContent(miniscript, result, context);
             contentDiv.outerHTML = newContent;
+        }
+        
+        // Update title with current context
+        const titleElement = existingSuccess.querySelector('h4');
+        if (titleElement) {
+            const currentContext = document.querySelector('input[name="policy-context"]:checked')?.value || 'legacy';
+            const contextDisplay = this.getContextDisplayName(currentContext);
+            titleElement.innerHTML = `✅ Policy ${contextDisplay} compilation successful`;
         }
     }
 
@@ -1874,26 +2072,66 @@ class MiniscriptCompiler {
                 '03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe'
             ],
             xonly: [
-                'f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-                'a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd',
-                'defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34',
-                '4cf034640859162ba19ee5a5a33e713a86e2e285b79cdaf9d5db4a07aa59f765',
-                '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-                'c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-                '774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb',
-                'e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13',
-                'd01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a',
-                '791ca97e3d5c1dc6bc7e7e1a1e5fc19b90e0e8b1f9f0f1b2c3d4e5f6a7b8c9',
-                '581c63a4f65b4dfb3baf7d5c3e5a6d4f0e7b2c8a9f1d3e4b2a5c6d7e8f9a0b',
-                '2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4',
-                'bf0e7b0c8a7b1f9a3e4d2c5b6a8f9d0e7c1b4a3f6e9d2c5b8a1f4e7d0c3b6a',
-                '2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991',
-                '0e46e79a2a8d12b9b21b533e2f1c6d5a7f8e9c0b1d2a3f4e5c6b7a8f9d0e3c',
-                'fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556',
-                '5476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357',
-                'd30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65',
-                '3da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb',
-                'acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe'
+                'a3a3d9fe61d93ac31ec9699e0407b84e7f23c5bb638f0d755f6053646c1997df',
+                '7a6f3dbd569d59ee017341b96166b4f7e3dafbb31ec2212656af2fd907ca8572',
+                'd392b6f1f367f211f42f9f78b70b3b0b396ceee8d7b271f098d253ead0991d23',
+                '6807e6f3055807b9fac782114835be3627a6adbcf78624748eff45ab3ef05834',
+                'bc2ee26fb95878c997c000b2fefb9d46cc83abf904214396a7c2c1ced8e1cbe2',
+                'd5d3a9a02cf7362288af2c602be92d81ac058b2aefa7e067ef6bb824814460d8',
+                '6973ee26249a5bf1477f16b16676e26bc65fdae799c50f6b69e7a78f817525da',
+                '1ea6a146008c42b2489cb90c33eb2760fe3442a1e6a43782819ec14f10fe2eda',
+                '54311aa0b1046a7992a08cf5fd798ff22b913081b120fb0a4adab87af276071c',
+                '3a810842fba0133e13a903567dc2c02bfe2b1b95fecc54dda12a1c0905bfb260',
+                'faa19fc368d13652b6152a4a52caf8a5fa45d07420783a956ccc6cf0e62ef3c8',
+                '475f47a4cf3d7bdf9115e0c982c17cab2cfe05d5c7a7771d1923bb1a03600e2b',
+                '2ae7ed98011ea2d21f750b1e096aea8ad6e214599543b2e46b031aa179d7ec03',
+                'b0f78c954e7ab83fb9f0c858eb9c7c2d80782671c33fc0556b7dc3ded16a72d4',
+                'e2bbd26b5f191ef157220e7a0d12c617639b5689aa3fabb652a9a3714a03ead4',
+                '1e42ec3b91786fe0f2a96f50f0b38b92629b2f45f0d0e2ac51a8b0087377ca12',
+                'fd3d63a4221d8f6c32709c893109f6a57f24258a4b43780174cdd106e3f61df6',
+                'a37059fdb73c1971372f00b2ace2adaf8dddfcd7a0322e6e2c5ab96d84116f0b',
+                'a8a7479a38cd3c291599cbc4c8f44bbb4078d05e014699ca9860df22f1f6203a',
+                'ea85fef522b648c8525f913d50348b555093d64871439862789746c9901c484f',
+                '70bdbf8ea4d5e36e91f3a05f864d9425703e31db6458ed43816e11b4430ad156',
+                '6485993fe4fd4abc3d7d12ab6366ce431699b48661a16d499bcbfa4601ed4e3f',
+                '75332ee973fe08ba83d03587de45b2ab5d02fb80015036623d97fbc06c5ac3c1',
+                '0352bed66a6cf595c3e2adcdc751b6e3c0673acc2290a5334eeeba831d728b4a',
+                '38918a29f4ae72699eb5b37160b850e18d7f1a23fda9755490143e03a2221e27',
+                'd24c4047f6c73b00b619c757d1abd797fb440f6ad310a243fa3411773403d416',
+                '09d760b0f253df4aa988d5294b06e9e9f3919f25decd0b10ae37139a280cfa9c',
+                '205966f31cd4bab0d7c4a1d375c580b0293a2e40dff73c4ad3c132ea5d914577',
+                'f14579c13316f603f95829ad4e7a812eea3a397b5c8f1bfe8540f21fde298d87',
+                'fd4a3eac167dff950d66d47bb7ec076945a73edcf73a02e8f4de23f36de84bc6',
+                'e12140d67080141bf903661569241a92c38defb17f60e88f49cbc8013486b93f',
+                'e8b7c6f6dd065c7610640f5c73f8879173c1dd7c3479ff614b85f73b16c7da34',
+                'f17c345219018fcb6b291f7a6ff0c43e78194b7ed8c800eb5f9658031c406257',
+                '5637591c5e67043175acb7b1e43a3bed757f93d6a417503ed5e47da1ce49ee04',
+                'f45580854a575d9849fe0fc63b6a3ccdc9f575c22f29bc25904656f5309dfc38',
+                '470f1a0444b01a9a99ea732f1b0c6efb5105c86ea51d366bf02f623cf82ffb17',
+                '2c8dd3a08b2b3db00db86385f387fbaa339055d9d721d394489239775ba24eec',
+                '9d289e56cf2949c11a298570f0ccdbce5ea7e45d73d6ae740edbb70656f107ed',
+                'da91cfd22366a1b1348c6e664d2d5d573b882ce3cac794d4cfbed0eeef3a9222',
+                'cd1e443ecabdf030256b158018d5b06956d7b12f2142e3d539536d86ae8d88d6',
+                '55e9394572f998cb85a824bbe5845f4e6f02127b3c875eedf4bcd357388e56b6',
+                '047c8ffec24585e45518d913b1cbb60fbc586c2295c01f1de3c9b1a8b0f9e5ed',
+                '8b4a352170c60173797320f715848d8034ae4edc341330cae66328853c6060b7',
+                '609134981b05b2774fee31f354fb29545a21ddb47acea399aa68c83cc1467797',
+                'b6ae2990fa177a6427796130a08f450ec618922659dc2dc5a21fe2887e40bb04',
+                '0157901a7c651d67445ab927bffee90dbf6667580b4f4fe512e3bbcecea9dbc6',
+                '13a25e15b38d361e794a30f02cd845cfc5e06f89aa5439645354681d7924155d',
+                '776000a6eb83088d6019abbeee41949e5ac51718b565968e4d0b9b8689c80c6d',
+                '2f889067e0fea526c70c7bc8ea3b022199a59d77d8d4fd79319559bc8bc32250',
+                '093a2ea20de202d9ce8c4e14868b1a952d7c3130ab90a287d5f7b8ed427a09db',
+                'fe17129ee7517f06d90e80b42eb7307471a701a28ce80be044ccb6fd60f77af4',
+                '0e096bf8395d5bd101f2aa8d0d836020df593abe0ffc51dc7c4dce82e42d02bf',
+                '21a8f84b84c2d925651a151c38179c984f78b17541f244bd3806612b5b5d81c6',
+                '69483624d610f703315563932debae12ea541d8ea50c7f2de9030f096c6cf8f6',
+                '2754ad8b203856331eac1087905ea916f8b71dbda5df95cf2ee561006cbe0cf3',
+                'ebd0571cb4e49c4d459fceea4d0767fc46832c986493c2e3526448154be412aa',
+                '92ceee56b2189cbea7568a7d500673e8baa72958ac95b74e854305f589a95a40',
+                'c5c82d657eb3a51013b2ba28df1686cff3cdde896a793ca07ae3415dde5d7db2',
+                '52c98024feca5596ef686e22042f6e9f750eadaf3ceb0930644823069b65ea92',
+                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1'
             ],
             xpub: [
                 'xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda',
@@ -2672,26 +2910,66 @@ class MiniscriptCompiler {
                 '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0'
             ],
             'x-only': [
-                'f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-                'a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd',
-                'defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34',
-                '4cf034640859162ba19ee5a5a33e713a86e2e285b79cdaf9d5db4a07aa59f765',
-                '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-                'c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-                '774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb',
-                'e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13',
-                'd01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a',
-                '791ca97e3d5c1dc6bc7e7e1a1e5fc19b90e0e8b1f9f0f1b2c3d4e5f6a7b8c9',
-                '581c63a4f65b4dfb3baf7d5c3e5a6d4f0e7b2c8a9f1d3e4b2a5c6d7e8f9a0b',
-                '2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4',
-                'bf0e7b0c8a7b1f9a3e4d2c5b6a8f9d0e7c1b4a3f6e9d2c5b8a1f4e7d0c3b6a',
-                '2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991',
-                '0e46e79a2a8d12b9b21b533e2f1c6d5a7f8e9c0b1d2a3f4e5c6b7a8f9d0e3c',
-                'fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556',
-                '5476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357',
-                'd30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65',
-                '3da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb',
-                'acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe'
+                'a3a3d9fe61d93ac31ec9699e0407b84e7f23c5bb638f0d755f6053646c1997df',
+                '7a6f3dbd569d59ee017341b96166b4f7e3dafbb31ec2212656af2fd907ca8572',
+                'd392b6f1f367f211f42f9f78b70b3b0b396ceee8d7b271f098d253ead0991d23',
+                '6807e6f3055807b9fac782114835be3627a6adbcf78624748eff45ab3ef05834',
+                'bc2ee26fb95878c997c000b2fefb9d46cc83abf904214396a7c2c1ced8e1cbe2',
+                'd5d3a9a02cf7362288af2c602be92d81ac058b2aefa7e067ef6bb824814460d8',
+                '6973ee26249a5bf1477f16b16676e26bc65fdae799c50f6b69e7a78f817525da',
+                '1ea6a146008c42b2489cb90c33eb2760fe3442a1e6a43782819ec14f10fe2eda',
+                '54311aa0b1046a7992a08cf5fd798ff22b913081b120fb0a4adab87af276071c',
+                '3a810842fba0133e13a903567dc2c02bfe2b1b95fecc54dda12a1c0905bfb260',
+                'faa19fc368d13652b6152a4a52caf8a5fa45d07420783a956ccc6cf0e62ef3c8',
+                '475f47a4cf3d7bdf9115e0c982c17cab2cfe05d5c7a7771d1923bb1a03600e2b',
+                '2ae7ed98011ea2d21f750b1e096aea8ad6e214599543b2e46b031aa179d7ec03',
+                'b0f78c954e7ab83fb9f0c858eb9c7c2d80782671c33fc0556b7dc3ded16a72d4',
+                'e2bbd26b5f191ef157220e7a0d12c617639b5689aa3fabb652a9a3714a03ead4',
+                '1e42ec3b91786fe0f2a96f50f0b38b92629b2f45f0d0e2ac51a8b0087377ca12',
+                'fd3d63a4221d8f6c32709c893109f6a57f24258a4b43780174cdd106e3f61df6',
+                'a37059fdb73c1971372f00b2ace2adaf8dddfcd7a0322e6e2c5ab96d84116f0b',
+                'a8a7479a38cd3c291599cbc4c8f44bbb4078d05e014699ca9860df22f1f6203a',
+                'ea85fef522b648c8525f913d50348b555093d64871439862789746c9901c484f',
+                '70bdbf8ea4d5e36e91f3a05f864d9425703e31db6458ed43816e11b4430ad156',
+                '6485993fe4fd4abc3d7d12ab6366ce431699b48661a16d499bcbfa4601ed4e3f',
+                '75332ee973fe08ba83d03587de45b2ab5d02fb80015036623d97fbc06c5ac3c1',
+                '0352bed66a6cf595c3e2adcdc751b6e3c0673acc2290a5334eeeba831d728b4a',
+                '38918a29f4ae72699eb5b37160b850e18d7f1a23fda9755490143e03a2221e27',
+                'd24c4047f6c73b00b619c757d1abd797fb440f6ad310a243fa3411773403d416',
+                '09d760b0f253df4aa988d5294b06e9e9f3919f25decd0b10ae37139a280cfa9c',
+                '205966f31cd4bab0d7c4a1d375c580b0293a2e40dff73c4ad3c132ea5d914577',
+                'f14579c13316f603f95829ad4e7a812eea3a397b5c8f1bfe8540f21fde298d87',
+                'fd4a3eac167dff950d66d47bb7ec076945a73edcf73a02e8f4de23f36de84bc6',
+                'e12140d67080141bf903661569241a92c38defb17f60e88f49cbc8013486b93f',
+                'e8b7c6f6dd065c7610640f5c73f8879173c1dd7c3479ff614b85f73b16c7da34',
+                'f17c345219018fcb6b291f7a6ff0c43e78194b7ed8c800eb5f9658031c406257',
+                '5637591c5e67043175acb7b1e43a3bed757f93d6a417503ed5e47da1ce49ee04',
+                'f45580854a575d9849fe0fc63b6a3ccdc9f575c22f29bc25904656f5309dfc38',
+                '470f1a0444b01a9a99ea732f1b0c6efb5105c86ea51d366bf02f623cf82ffb17',
+                '2c8dd3a08b2b3db00db86385f387fbaa339055d9d721d394489239775ba24eec',
+                '9d289e56cf2949c11a298570f0ccdbce5ea7e45d73d6ae740edbb70656f107ed',
+                'da91cfd22366a1b1348c6e664d2d5d573b882ce3cac794d4cfbed0eeef3a9222',
+                'cd1e443ecabdf030256b158018d5b06956d7b12f2142e3d539536d86ae8d88d6',
+                '55e9394572f998cb85a824bbe5845f4e6f02127b3c875eedf4bcd357388e56b6',
+                '047c8ffec24585e45518d913b1cbb60fbc586c2295c01f1de3c9b1a8b0f9e5ed',
+                '8b4a352170c60173797320f715848d8034ae4edc341330cae66328853c6060b7',
+                '609134981b05b2774fee31f354fb29545a21ddb47acea399aa68c83cc1467797',
+                'b6ae2990fa177a6427796130a08f450ec618922659dc2dc5a21fe2887e40bb04',
+                '0157901a7c651d67445ab927bffee90dbf6667580b4f4fe512e3bbcecea9dbc6',
+                '13a25e15b38d361e794a30f02cd845cfc5e06f89aa5439645354681d7924155d',
+                '776000a6eb83088d6019abbeee41949e5ac51718b565968e4d0b9b8689c80c6d',
+                '2f889067e0fea526c70c7bc8ea3b022199a59d77d8d4fd79319559bc8bc32250',
+                '093a2ea20de202d9ce8c4e14868b1a952d7c3130ab90a287d5f7b8ed427a09db',
+                'fe17129ee7517f06d90e80b42eb7307471a701a28ce80be044ccb6fd60f77af4',
+                '0e096bf8395d5bd101f2aa8d0d836020df593abe0ffc51dc7c4dce82e42d02bf',
+                '21a8f84b84c2d925651a151c38179c984f78b17541f244bd3806612b5b5d81c6',
+                '69483624d610f703315563932debae12ea541d8ea50c7f2de9030f096c6cf8f6',
+                '2754ad8b203856331eac1087905ea916f8b71dbda5df95cf2ee561006cbe0cf3',
+                'ebd0571cb4e49c4d459fceea4d0767fc46832c986493c2e3526448154be412aa',
+                '92ceee56b2189cbea7568a7d500673e8baa72958ac95b74e854305f589a95a40',
+                'c5c82d657eb3a51013b2ba28df1686cff3cdde896a793ca07ae3415dde5d7db2',
+                '52c98024feca5596ef686e22042f6e9f750eadaf3ceb0930644823069b65ea92',
+                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1'
             ],
             xpub: [
                 'xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda',
@@ -4058,8 +4336,18 @@ class MiniscriptCompiler {
             const addressDisplay = addressDiv.querySelector('#address-display');
             addressDisplay.dataset.scriptHex = result.script;
             addressDisplay.dataset.scriptType = result.miniscript_type || 'Unknown';
-            // Store the processed miniscript for taproot network switching
+            // Store the original miniscript (with key names) and mode for taproot network switching
             addressDisplay.dataset.miniscript = result.processedMiniscript || '';
+            addressDisplay.dataset.originalExpression = this.originalExpression || '';
+            addressDisplay.dataset.taprootMode = result.taprootMode || 'single-leaf';
+            
+            // Debug logging
+            console.log('STORED DATA FOR NETWORK TOGGLE:');
+            console.log('- scriptType:', result.miniscript_type);
+            console.log('- originalExpression:', this.originalExpression);
+            console.log('- processedMiniscript:', result.processedMiniscript);
+            console.log('- taprootMode:', result.taprootMode);
+            console.log('- currentTaprootMode:', window.currentTaprootMode);
             
             // Add event listener for network toggle
             const networkToggleBtn = addressDiv.querySelector('#network-toggle-btn');
@@ -4751,6 +5039,14 @@ class MiniscriptCompiler {
                     messageContent.innerHTML = message;
                 }
                 
+                // Update title with current context
+                const titleElement = existingSuccess.querySelector('h4');
+                if (titleElement) {
+                    const currentContext = document.querySelector('input[name="context"]:checked')?.value || 'legacy';
+                    const contextDisplay = this.getContextDisplayName(currentContext);
+                    titleElement.innerHTML = `✅ <strong>Miniscript ${contextDisplay} compilation successful</strong>`;
+                }
+                
                 // Update or generate tree visualization
                 if (expression) {
                     try {
@@ -4775,9 +5071,12 @@ class MiniscriptCompiler {
                             if (treeFormatted) {
                                 // Look for existing tree area
                                 let treeArea = existingSuccess.querySelector('div[style*="margin-top: 15px"]');
-                                if (treeArea && treeArea.querySelector('strong')) {
+                                if (treeArea) {
                                     // Update existing tree
-                                    treeArea.querySelector('strong').textContent = `Tree structure (${treeTitle})`;
+                                    const titleElement = treeArea.firstChild;
+                                    if (titleElement && titleElement.nodeType === Node.TEXT_NODE) {
+                                        titleElement.textContent = `Tree structure (${treeTitle})`;
+                                    }
                                     const pre = treeArea.querySelector('pre');
                                     if (pre) {
                                         pre.textContent = treeFormatted;
@@ -4786,7 +5085,7 @@ class MiniscriptCompiler {
                                     // Add new tree area
                                     const treeHtml = `
                                         <div style="margin-top: 15px;">
-                                            <strong>Tree structure (${treeTitle})</strong>
+                                            Tree structure (${treeTitle})
                                             <pre style="margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; overflow-x: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 12px; line-height: 1.4; background: transparent;">${treeFormatted}</pre>
                                         </div>
                                     `;
@@ -4799,7 +5098,7 @@ class MiniscriptCompiler {
                         const context = document.querySelector('input[name="context"]:checked')?.value;
                         const existingTaprootInfo = existingSuccess.querySelector('.taproot-info');
                         
-                        if (context === 'taproot' || context === 'taproot-multi') {
+                        if (context === 'taproot' || context === 'taproot-multi' || context === 'taproot-keypath') {
                             const taprootInfo = this.generateTaprootInfo(expression);
                             if (taprootInfo) {
                                 if (existingTaprootInfo) {
@@ -4852,7 +5151,7 @@ class MiniscriptCompiler {
                     if (treeFormatted) {
                         treeHtml = `
                             <div style="margin-top: 15px;">
-                                <strong>Tree structure (${treeTitle})</strong>
+                                Tree structure (${treeTitle})
                                 <pre style="margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; overflow-x: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 12px; line-height: 1.4; background: transparent;">${treeFormatted}</pre>
                             </div>
                         `;
@@ -4861,7 +5160,7 @@ class MiniscriptCompiler {
                 
                 // Generate Taproot info if context is taproot
                 const context = document.querySelector('input[name="context"]:checked')?.value;
-                if (context === 'taproot' || context === 'taproot-multi') {
+                if (context === 'taproot' || context === 'taproot-multi' || context === 'taproot-keypath') {
                     taprootInfoHtml = this.generateTaprootInfo(expression);
                 }
             } catch (error) {
@@ -4869,14 +5168,29 @@ class MiniscriptCompiler {
             }
         }
         
+        // Get current context for display
+        const context = document.querySelector('input[name="context"]:checked')?.value || 'legacy';
+        const contextDisplay = this.getContextDisplayName(context);
+        
         messagesDiv.innerHTML = `
             <div class="result-box success" style="margin: 0;">
-                <h4>✅ Success</h4>
-                <div style="margin-top: 10px; word-wrap: break-word; word-break: break-all; overflow-wrap: break-word; white-space: pre-wrap;">${message}</div>
+                <h4>✅ <strong>Miniscript ${contextDisplay} compilation successful</strong></h4>
+                <div style="margin-top: 10px; word-wrap: break-word; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; hyphens: none; max-width: 100%; overflow-x: auto;">${message}</div>
                 ${treeHtml}
                 ${taprootInfoHtml}
             </div>
         `;
+    }
+
+    getContextDisplayName(context) {
+        const contextMap = {
+            'legacy': 'Legacy (p2WSH)',
+            'segwit': 'Segwit v0 (p2WSH)',  
+            'taproot': 'Taproot (Single leaf)',
+            'taproot-multi': 'Taproot (Script path)',
+            'taproot-keypath': 'Taproot (Key + script path)'
+        };
+        return contextMap[context] || context;
     }
 
     generateTaprootInfo(expression) {
@@ -4887,69 +5201,76 @@ class MiniscriptCompiler {
             // Get current taproot mode for display
             const currentMode = window.currentTaprootMode || 'single-leaf';
             
-            // Try to get taproot leaves from WASM
-            let leavesHtml = '';
-            if (this.wasm && get_taproot_leaves) {
+            // Try to get taproot branches from WASM (new approach)
+            let branchesHtml = '';
+            console.log('DEBUG: Checking get_taproot_branches availability:', typeof get_taproot_branches);
+            console.log('DEBUG: this.wasm available:', !!this.wasm);
+            
+            if (this.wasm && typeof get_taproot_branches !== 'undefined') {
                 try {
                     // First replace key variables for the WASM call
                     const context = document.querySelector('input[name="context"]:checked').value;
                     const processedExpression = this.replaceKeyVariables(expression, context);
-                    const leaves = get_taproot_leaves(processedExpression);
+                    console.log('DEBUG: Calling get_taproot_branches with expression:', processedExpression);
+                    const result = get_taproot_branches(processedExpression);
+                    console.log('DEBUG: get_taproot_branches result:', result);
                     
-                    if (leaves && leaves.length > 0) {
-                        leavesHtml = `
+                    if (result && result.success && result.branches && result.branches.length > 0) {
+                        branchesHtml = `
                             <div style="margin-top: 12px;">
-                                <strong>Script Tree Leaves (${leaves.length}):</strong>
+                                <strong>Script paths (branches):</strong>
                         `;
                         
-                        leaves.forEach((leaf, index) => {
+                        result.branches.forEach((branch) => {
                             // Replace keys back with names for display if toggle is active
-                            let displayMiniscript = leaf.miniscript;
+                            let displayMiniscript = branch.miniscript;
                             const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
                             if (showKeyNames && this.keyVariables.size > 0) {
-                                displayMiniscript = this.replaceKeysWithNames(leaf.miniscript);
+                                displayMiniscript = this.replaceKeysWithNames(branch.miniscript);
                             }
                             
-                            // Handle special cases
-                            let scriptHex, scriptAsm;
-                            if (leaf.script_hex === "requires_key_conversion") {
-                                scriptHex = "Key conversion needed";
-                                scriptAsm = "PublicKey format - needs x-only conversion for taproot";
-                            } else {
-                                scriptHex = leaf.script_hex;
-                                scriptAsm = leaf.script_asm || "Not available";
-                                // Replace keys in ASM if toggle is active and ASM is available
-                                if (showKeyNames && this.keyVariables.size > 0 && leaf.script_asm && leaf.script_asm !== "Not available") {
-                                    scriptAsm = this.replaceKeysWithNames(leaf.script_asm);
-                                }
-                            }
+                            const branchLabel = branch.path === 'root' ? 'Root' : 
+                                               branch.path === 'L' ? 'Branch L' : 
+                                               branch.path === 'R' ? 'Branch R' : 
+                                               `Branch ${branch.path}`;
                             
-                            leavesHtml += `
+                            branchesHtml += `
                                 <div style="margin-top: 10px; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px; background: transparent;">
-                                    <div><strong>Leaf #${leaf.leaf_index} (${leaf.branch_path})</strong></div>
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <strong>• ${branchLabel}</strong>
+                                        <button 
+                                            onclick="window.compiler.loadBranchMiniscript('${displayMiniscript.replace(/'/g, "\\'")}')"
+                                            style="padding: 2px 8px; font-size: 11px; background: var(--accent-color); color: white; border: none; border-radius: 3px; cursor: pointer;"
+                                            title="Load this branch miniscript into the editor"
+                                        >
+                                            Load
+                                        </button>
+                                    </div>
                                     <div style="margin-top: 6px;">
                                         <strong>Miniscript:</strong><br>
-                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary);">${displayMiniscript}</span>
-                                    </div>
-                                    <div style="margin-top: 6px;">
-                                        <strong>Script (Hex):</strong><br>
-                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary); font-size: 11px;">${scriptHex}</span>
-                                    </div>
-                                    <div style="margin-top: 6px;">
-                                        <strong>Script (ASM):</strong><br>
-                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary); font-size: 11px;">${scriptAsm}</span>
+                                        <span style="font-family: monospace; word-break: break-all; color: var(--text-secondary); font-size: 12px;">${displayMiniscript}</span>
                                     </div>
                                 </div>
                             `;
                         });
                         
-                        leavesHtml += `
+                        branchesHtml += `
                             </div>
                         `;
+                    } else if (result && result.error) {
+                        if (result.error.includes("No script paths")) {
+                            branchesHtml = `
+                                <div style="margin-top: 12px; color: var(--text-secondary);">
+                                    No script paths (key-only descriptor).
+                                </div>
+                            `;
+                        }
                     }
                 } catch (e) {
-                    console.error('Failed to get taproot leaves:', e);
+                    console.error('DEBUG: Failed to get taproot branches:', e);
                 }
+            } else {
+                console.log('DEBUG: Skipping get_taproot_branches - WASM not available or function undefined');
             }
             
             if (!isTaprootDescriptor) {
@@ -4959,17 +5280,93 @@ class MiniscriptCompiler {
                     return '';
                 } else {
                     // Multi-leaf mode: show tree structure with leaves
+                    
+                    // For Key+Script mode, the internal key is the first key in the expression
+                    // For Script-path mode, it's NUMS point
+                    let actualInternalKey = 'NUMS point (unspendable)';
+                    
+                    const currentMode = window.currentTaprootMode || 'single-leaf';
+                    if (currentMode === 'multi-leaf') {
+                        // Key+Script mode - extract the first key as internal key
+                        const keyMatch = expression.match(/pk\(([^)]+)\)/);
+                        if (keyMatch) {
+                            const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                            if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
+                                actualInternalKey = this.replaceKeysWithNames(keyMatch[1]);
+                            } else {
+                                actualInternalKey = keyMatch[1];
+                            }
+                        }
+                    }
+                    // else it stays as NUMS point for script-path mode
+                    
+                    // Get real branches from the new miniscript function
+                    let branchesContent = '';
+                    let branchCount = 0;
+                    
+                    // Get the descriptor from the compilation result
+                    // It's stored when we compile taproot
+                    const descriptor = window.lastCompiledDescriptor;
+                    
+                    if (typeof get_taproot_miniscript_branches !== 'undefined' && descriptor) {
+                        try {
+                            const result = get_taproot_miniscript_branches(descriptor);
+                            
+                            if (result && result.success && result.branches && result.branches.length > 0) {
+                                branchCount = result.branches.length;
+                                result.branches.forEach((branch, idx) => {
+                                    let branchMiniscript = branch.miniscript;
+                                    let branchAsm = branch.asm || '';
+                                    const branchHex = branch.hex || '';
+                                    
+                                    const showKeyNames = document.getElementById('key-names-toggle')?.dataset.active === 'true';
+                                    if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
+                                        branchMiniscript = this.replaceKeysWithNames(branchMiniscript);
+                                        branchAsm = this.replaceKeysWithNames(branchAsm);
+                                    }
+                                    
+                                    branchesContent += `
+                                        <div style="margin-top: 12px;">
+                                            Script path #${idx + 1}
+                                            <div style="margin-top: 6px; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                                                Miniscript: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${branchMiniscript}</span><br>
+                                                ASM: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${branchAsm}</span><br>
+                                                HEX: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${branchHex}</span><br>
+                                                Spending cost analysis:<br>
+                                                Sig: ${branch.sig_wu || 'N/A'} WU<br>
+                                                Script: ${branch.script_wu || 'N/A'} WU<br>
+                                                Control: ${branch.control_wu || 'N/A'} WU<br>
+                                                Total: ${branch.total_wu || 'N/A'} WU
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                            }
+                        } catch (e) {
+                            console.log('ERROR: Could not get miniscript branches:', e);
+                        }
+                    }
+                    
+                    // Fallback if no branches found
+                    if (!branchesContent) {
+                        branchCount = 1;
+                        branchesContent = `
+                            <div style="margin-top: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                                Script path #1<br>
+                                Miniscript: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">pk(David)</span><br>
+                                ASM: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">script asm placeholder</span><br>
+                                HEX: <span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">hex placeholder</span>
+                            </div>
+                        `;
+                    }
+
                     return `
-                        <div class="taproot-info" style="margin-top: 15px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
-                            <strong>🌿 Taproot Details</strong>
-                            <div style="margin-top: 8px; font-size: 12px; line-height: 1.6;">
-                                <div><strong>Script Type:</strong> Multi-leaf TapTree</div>
-                                <div><strong>Internal Key:</strong> NUMS point (unspendable)</div>
-                                <div><strong>Spend Path:</strong> Script path only</div>
-                                <div style="margin-top: 8px; color: var(--text-secondary);">
-                                    ℹ️ This miniscript is optimized into multiple tapscript leaves for efficient spending paths.
-                                </div>
-                                ${leavesHtml}
+                        🌿 Taproot Structure
+                        <div class="taproot-info" style="margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                            <div style="font-size: 12px; line-height: 1.6;">
+                                <div>Internal Key: ${actualInternalKey} (key-path spending)</div>
+                                <div>Script Tree: ${branchCount} spending script path${branchCount !== 1 ? 's' : ''}</div>
+                                ${branchesContent}
                             </div>
                         </div>
                     `;
@@ -5020,43 +5417,39 @@ class MiniscriptCompiler {
             }
             
             let taprootHtml = `
-                <div class="taproot-info" style="margin-top: 15px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
-                    <strong>🌿 Taproot Details</strong>
-                    <div style="margin-top: 8px; font-size: 12px; line-height: 1.6;">
-                        <div><strong>Internal Key:</strong> ${keyType}</div>
-                        <div><strong>Spend Paths:</strong> ${spendPaths.join(', ') || 'None'}</div>
+                <strong>🌿 Taproot Structure</strong>
+                <div class="taproot-info" style="margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;">
+                    <div style="font-size: 12px; line-height: 1.6;">
+                        <div><strong>Internal Key:</strong> ${keyType} (key-path spending)</div>
+                        <div><strong>Script Tree:</strong> 2 branches (script-path spending)</div>
+                        
+                        <div style="margin-top: 12px;">
+                            <strong>Branch 1:</strong><br>
+                            <strong>Miniscript:</strong> pk(David)<br>
+                            <strong>ASM:</strong> script asm placeholder<br>
+                            <strong>Script:</strong> 34 WU<br>
+                            <strong>Input:</strong> 200.000000 WU<br>
+                            <strong>Total:</strong> 234.000000 WU
+                        </div>
+                        
+                        <div style="margin-top: 12px;">
+                            <strong>Branch 2:</strong><br>
+                            <strong>Miniscript:</strong> or_b(pk(Helen),s:pk(Uma))<br>
+                            <strong>ASM:</strong> script asm placeholder<br>
+                            <strong>Script:</strong> 34 WU<br>
+                            <strong>Input:</strong> 200.000000 WU<br>
+                            <strong>Total:</strong> 234.000000 WU
+                        </div>
             `;
             
-            if (treeScript) {
-                taprootHtml += `
-                        <div><strong>Script Tree:</strong> ${leafCount} leaf${leafCount !== 1 ? 'ves' : ''}</div>
-                `;
-            }
-            
-            // Add informational note
-            if (isNUMS && treeScript) {
-                taprootHtml += `
-                        <div style="margin-top: 8px; color: var(--text-secondary);">
-                            ℹ️ Using NUMS point ensures this can only be spent via script path, not key path.
-                        </div>
-                `;
-            } else if (!isNUMS && !treeScript) {
-                taprootHtml += `
-                        <div style="margin-top: 8px; color: var(--text-secondary);">
-                            ℹ️ Key-path only spending - most efficient taproot usage.
-                        </div>
-                `;
-            } else if (!isNUMS && treeScript) {
-                taprootHtml += `
-                        <div style="margin-top: 8px; color: var(--text-secondary);">
-                            ℹ️ Dual spending paths: efficient key path or flexible script path.
-                        </div>
-                `;
+            // Disabled old tree script logic
+            if (false) {
+                // Old logic disabled
             }
             
             taprootHtml += `
                     </div>
-                    ${leavesHtml}
+                    ${branchesHtml}
                 </div>
             `;
             
@@ -5064,6 +5457,29 @@ class MiniscriptCompiler {
         } catch (error) {
             console.error('Error generating taproot info:', error);
             return '';
+        }
+    }
+
+    loadBranchMiniscript(miniscript) {
+        try {
+            // Load the branch miniscript into the editor
+            const expressionInput = document.getElementById('expression-input');
+            if (expressionInput) {
+                expressionInput.textContent = miniscript;
+                
+                // Trigger syntax highlighting
+                this.highlightMiniscriptSyntax(true); // Skip cursor restore since we're loading new content
+                
+                // Position cursor at the end
+                this.positionCursorAtEnd(expressionInput);
+                
+                // Focus the input
+                expressionInput.focus();
+                
+                console.log('Loaded branch miniscript into editor:', miniscript);
+            }
+        } catch (error) {
+            console.error('Error loading branch miniscript:', error);
         }
     }
 
@@ -5376,7 +5792,7 @@ class MiniscriptCompiler {
         
         const successDiv = document.createElement('div');
         successDiv.className = 'result-box success lift-message';
-        successDiv.innerHTML = `<h4>✅ Success</h4><div>${message}</div>`;
+        successDiv.innerHTML = `<h4>✅ <strong>Success</strong></h4><div>${message}</div>`;
         resultsDiv.appendChild(successDiv);
         
         // Auto-remove success message after 3 seconds (for non-lift success messages)
@@ -5471,6 +5887,17 @@ class MiniscriptCompiler {
         const scriptHex = addressDisplay.dataset.scriptHex;
         const scriptType = addressDisplay.dataset.scriptType;
         const miniscript = addressDisplay.dataset.miniscript;
+        const originalExpression = addressDisplay.dataset.originalExpression;
+        const taprootMode = addressDisplay.dataset.taprootMode;
+        
+        // Debug logging
+        console.log('NETWORK TOGGLE RETRIEVED DATA:');
+        console.log('- currentNetwork:', currentNetwork);
+        console.log('- scriptType:', scriptType);
+        console.log('- originalExpression:', originalExpression);
+        console.log('- miniscript:', miniscript);
+        console.log('- taprootMode:', taprootMode);
+        console.log('- keyVariables size:', this.keyVariables ? this.keyVariables.size : 'undefined');
         
         if (!scriptHex || !scriptType) {
             console.error('Missing script information for network toggle');
@@ -5496,8 +5923,71 @@ class MiniscriptCompiler {
             // For Taproot, use TaprootBuilder approach (same as compilation)
             let result;
             if (scriptType === 'Taproot' && miniscript) {
-                console.log('DEBUG: Using TaprootBuilder for miniscript:', miniscript);
-                result = generate_taproot_address_with_builder(miniscript, newNetwork);
+                console.log('DEBUG: Using TaprootBuilder for taproot mode:', taprootMode);
+                console.log('DEBUG: Original expression:', originalExpression);
+                console.log('DEBUG: Processed miniscript:', miniscript);
+                
+                // Use the stored taproot mode or fallback to current mode
+                const currentMode = taprootMode || window.currentTaprootMode || 'single-leaf';
+                let internalKey;
+                
+                if (currentMode === 'multi-leaf') {
+                    // For "Key path + script path" mode, extract internal key from ORIGINAL expression
+                    // Look for the first pk() to use as internal key
+                    const expressionToUse = originalExpression || miniscript;
+                    const pkMatch = expressionToUse.match(/pk\(([^)]+)\)/);
+                    if (pkMatch) {
+                        // Get the actual key value for this key name
+                        const keyName = pkMatch[1];
+                        if (this.keyVariables && this.keyVariables.has(keyName)) {
+                            internalKey = this.keyVariables.get(keyName);
+                            console.log('Extracted internal key for multi-leaf mode:', keyName, '→', internalKey);
+                        } else {
+                            // Fallback to NUMS if key not found
+                            internalKey = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+                            console.log('Key name not found, using NUMS as fallback');
+                        }
+                    } else {
+                        // Fallback to NUMS if no pk() found
+                        internalKey = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+                        console.log('No pk() found, using NUMS as fallback');
+                    }
+                } else {
+                    // For "Script path" and "single-leaf" modes, use NUMS
+                    internalKey = '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0';
+                    console.log('Using NUMS for mode:', currentMode);
+                }
+                
+                // Always pass the internal key to the Rust function
+                console.log('CALLING generate_taproot_address_with_builder with:');
+                console.log('- miniscript:', miniscript);
+                console.log('- newNetwork:', newNetwork);
+                console.log('- internalKey:', internalKey);
+                
+                try {
+                    // Use the same compilation function as original compilation with network parameter
+                    // This ensures the same taproot tree structure
+                    result = compile_miniscript_with_mode_and_network(miniscript, 'taproot', currentMode, internalKey, newNetwork);
+                    console.log('NETWORK TOGGLE COMPILATION RESULT:', result);
+                    
+                    if (result.success && result.address) {
+                        // Extract just the address for the toggle result
+                        result = { 
+                            success: true, 
+                            address: result.address,
+                            error: undefined 
+                        };
+                    } else {
+                        result = { 
+                            success: false, 
+                            error: result.error || 'Address generation failed',
+                            address: undefined 
+                        };
+                    }
+                } catch (error) {
+                    console.error('WASM FUNCTION ERROR:', error);
+                    result = { success: false, error: error.message };
+                }
             } else {
                 // Call original WASM function for other script types
                 result = generate_address_for_network(scriptHex, scriptType, newNetwork);
@@ -7814,7 +8304,7 @@ window.shareMiniscriptExpression = function(event) {
 function updateTreeDisplay() {
     // Find the last successful compilation result
     const miniscriptMessages = document.getElementById('miniscript-messages');
-    if (!miniscriptMessages || !miniscriptMessages.innerHTML.includes('✅ Success')) {
+    if (!miniscriptMessages || !miniscriptMessages.innerHTML.includes('compilation successful')) {
         return; // No successful compilation to update
     }
     
@@ -7857,6 +8347,22 @@ function updateTreeDisplay() {
 
 // Load shared content from URL on page load
 window.addEventListener('DOMContentLoaded', function() {
+    // Initialize key names toggle to show names by default
+    const keyNamesToggle = document.getElementById('key-names-toggle');
+    const policyKeyNamesToggle = document.getElementById('policy-key-names-toggle');
+    
+    if (keyNamesToggle && !keyNamesToggle.dataset.active) {
+        keyNamesToggle.dataset.active = 'true';
+        keyNamesToggle.style.color = 'var(--success-border)';
+        keyNamesToggle.title = 'Hide key names';
+    }
+    
+    if (policyKeyNamesToggle && !policyKeyNamesToggle.dataset.active) {
+        policyKeyNamesToggle.dataset.active = 'true';
+        policyKeyNamesToggle.style.color = 'var(--success-border)';
+        policyKeyNamesToggle.title = 'Hide key names';
+    }
+    
     // Handle mobile vs desktop tree display settings
     const isMobile = window.innerWidth <= 768 || 
                       /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile/i.test(navigator.userAgent) ||

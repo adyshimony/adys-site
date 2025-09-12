@@ -196,20 +196,83 @@ export function compile_miniscript(expression, context) {
 }
 
 /**
- * Compile a miniscript expression to Bitcoin script with compilation mode
+ * Compile a miniscript expression to Bitcoin script with compilation mode and network
  * @param {string} expression
  * @param {string} context
  * @param {string} mode
+ * @param {string} nums_key
+ * @param {string} network_str
  * @returns {any}
  */
-export function compile_miniscript_with_mode(expression, context, mode) {
+export function compile_miniscript_with_mode_and_network(expression, context, mode, nums_key, network_str) {
     const ptr0 = passStringToWasm0(expression, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(context, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ptr2 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.compile_miniscript_with_mode(ptr0, len0, ptr1, len1, ptr2, len2);
+    const ptr3 = passStringToWasm0(nums_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(network_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.compile_miniscript_with_mode_and_network(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+    return ret;
+}
+
+/**
+ * Compile a miniscript expression to Bitcoin script with compilation mode
+ * @param {string} expression
+ * @param {string} context
+ * @param {string} mode
+ * @param {string} nums_key
+ * @returns {any}
+ */
+export function compile_miniscript_with_mode(expression, context, mode, nums_key) {
+    const ptr0 = passStringToWasm0(expression, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(context, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(nums_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.compile_miniscript_with_mode(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+    return ret;
+}
+
+/**
+ * Get miniscript branches for taproot descriptors using YOUR WORKING CODE
+ * @param {string} descriptor
+ * @returns {any}
+ */
+export function get_taproot_miniscript_branches(descriptor) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.get_taproot_miniscript_branches(ptr0, len0);
+    return ret;
+}
+
+/**
+ * Get taproot branches - real implementation
+ * @param {string} descriptor
+ * @returns {any}
+ */
+export function get_taproot_branches(descriptor) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.get_taproot_branches(ptr0, len0);
+    return ret;
+}
+
+/**
+ * Calculate weight information for each taproot branch
+ * @param {string} descriptor
+ * @returns {any}
+ */
+export function get_taproot_branch_weights(descriptor) {
+    const ptr0 = passStringToWasm0(descriptor, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.get_taproot_branch_weights(ptr0, len0);
     return ret;
 }
 
@@ -270,18 +333,24 @@ export function generate_taproot_address_for_network(miniscript, network_str) {
     return ret;
 }
 
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
 /**
  * Generate taproot address using TaprootBuilder (matches compilation logic)
  * @param {string} miniscript
  * @param {string} network_str
+ * @param {string | null} [internal_key]
  * @returns {any}
  */
-export function generate_taproot_address_with_builder(miniscript, network_str) {
+export function generate_taproot_address_with_builder(miniscript, network_str, internal_key) {
     const ptr0 = passStringToWasm0(miniscript, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(network_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.generate_taproot_address_with_builder(ptr0, len0, ptr1, len1);
+    var ptr2 = isLikeNone(internal_key) ? 0 : passStringToWasm0(internal_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    var len2 = WASM_VECTOR_LEN;
+    const ret = wasm.generate_taproot_address_with_builder(ptr0, len0, ptr1, len1, ptr2, len2);
     return ret;
 }
 
