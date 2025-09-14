@@ -5,6 +5,11 @@ class MiniscriptCompiler {
     constructor() {
         this.wasm = null;
         this.keyVariables = new Map();
+        this.DEFAULT_VARIABLES_VERSION = '1.1.0'; // Increment when adding new variables
+        
+        // Single shared map of default variables
+        this.defaultVariables = new Map();
+        this.initializeDefaultVariables();
         this.undoStacks = {
             policy: [],
             miniscript: []
@@ -625,16 +630,58 @@ class MiniscriptCompiler {
                             successMsg += `Data (tweaked public key):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${tweakedKey}</span><br>`;
                         }
                     } else if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
-                        const scriptWeight = result.script_size;            // e.g. 35
-                        const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
-                        
-                        const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
-                        const totalWeight = scriptWeight + inputWeight;     // 35 + 73 = 108
-                        
-                        successMsg += `<br>Spending cost analysis:<br>`;
-                        successMsg += `Script: ${scriptWeight} WU<br>`;
-                        successMsg += `Input: ${inputWeight}.000000 WU<br>`;
-                        successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
+                        // Different calculation for Legacy vs Segwit contexts
+                        if (context === 'legacy') {
+                            // Helper functions for precise calculation
+                            const cs = (n) => n < 253 ? 1 : (n <= 0xffff ? 3 : (n <= 0xffffffff ? 5 : 9));
+                            const pushOv = (n) => n <= 75 ? 1 : (n <= 255 ? 2 : (n <= 65535 ? 3 : 5));
+                            
+                            // P2SH satisfaction cost calculation
+                            const scriptSize = result.script_size;               // e.g. 35 bytes for pk(Alice)
+                            const sigLen = 73;                                   // worst-case DER + hashtype (71-73 typical)
+                            
+                            // P2SH scriptSig content: push(sig) + sig + push(script) + script
+                            const content = (pushOv(sigLen) + sigLen) + (pushOv(scriptSize) + scriptSize);
+                            const p2shSatisfactionWU = 4 * (cs(content) + content);
+                            
+                            // For display: also show the overhead
+                            const overheadBytes = 36 + 4;                        // outpoint (36) + nSequence (4) = 40
+                            const overheadWU = overheadBytes * 4;                // 40 * 4 = 160 WU
+                            const totalWU = p2shSatisfactionWU + overheadWU;
+                            
+                            successMsg += `<br>Spending cost analysis (P2SH):<br>`;
+                            successMsg += `Satisfaction cost (scriptSig content): ${p2shSatisfactionWU} WU<br>`;
+                            successMsg += `Input overhead (outpoint + nSequence): ${overheadWU} WU<br>`;
+                            successMsg += `Per-input total: ${totalWU} WU<br><br>`;
+                        } else if (context === 'segwit') {
+                            // For Segwit v0 (P2WSH)
+                            const scriptWeight = result.script_size;            // e.g. 35
+                            const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
+                            
+                            const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
+                            const satisfactionTotal = scriptWeight + inputWeight; // 35 + 73 = 108
+                            const inputOverhead = 160;                          // outpoint (36) + nSequence (4) = 40 bytes × 4
+                            const perInputTotal = satisfactionTotal + inputOverhead; // 108 + 160 = 268
+                            
+                            successMsg += `<br>Spending cost analysis:<br>`;
+                            successMsg += `Script (witnessScript): ${scriptWeight} WU<br>`;
+                            successMsg += `Input (witness, excl. script): ${inputWeight}.000000 WU<br>`;
+                            successMsg += `Satisfaction total: ${satisfactionTotal}.000000 WU<br>`;
+                            successMsg += `Input overhead (outpoint + nSequence): ${inputOverhead} WU<br>`;
+                            successMsg += `Per-input total: ${perInputTotal} WU<br><br>`;
+                        } else {
+                            // For other contexts (taproot_single_leaf, etc.) - keep the simpler format
+                            const scriptWeight = result.script_size;            // e.g. 35
+                            const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
+                            
+                            const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
+                            const totalWeight = scriptWeight + inputWeight;     // 35 + 73 = 108
+                            
+                            successMsg += `<br>Spending cost analysis:<br>`;
+                            successMsg += `Script: ${scriptWeight} WU<br>`;
+                            successMsg += `Input: ${inputWeight}.000000 WU<br>`;
+                            successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
+                        }
                     } else if (result.max_satisfaction_size) {
                         // Fallback - show satisfaction size
                         successMsg += `<br>Spending cost analysis:<br>`;
@@ -906,16 +953,58 @@ class MiniscriptCompiler {
                     successMsg = `${result.miniscript_type}, ${result.script_size} bytes script size<br>`;
                     
                     if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
-                        const scriptWeight = result.script_size;            // e.g. 35
-                        const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
-                        
-                        const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
-                        const totalWeight = scriptWeight + inputWeight;     // 35 + 73 = 108
-                        
-                        successMsg += `<br>Spending cost analysis:<br>`;
-                        successMsg += `Script: ${scriptWeight} WU<br>`;
-                        successMsg += `Input: ${inputWeight}.000000 WU<br>`;
-                        successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
+                        // Different calculation for Legacy vs Segwit contexts
+                        if (context === 'legacy') {
+                            // Helper functions for precise calculation
+                            const cs = (n) => n < 253 ? 1 : (n <= 0xffff ? 3 : (n <= 0xffffffff ? 5 : 9));
+                            const pushOv = (n) => n <= 75 ? 1 : (n <= 255 ? 2 : (n <= 65535 ? 3 : 5));
+                            
+                            // P2SH satisfaction cost calculation
+                            const scriptSize = result.script_size;               // e.g. 35 bytes for pk(Alice)
+                            const sigLen = 73;                                   // worst-case DER + hashtype (71-73 typical)
+                            
+                            // P2SH scriptSig content: push(sig) + sig + push(script) + script
+                            const content = (pushOv(sigLen) + sigLen) + (pushOv(scriptSize) + scriptSize);
+                            const p2shSatisfactionWU = 4 * (cs(content) + content);
+                            
+                            // For display: also show the overhead
+                            const overheadBytes = 36 + 4;                        // outpoint (36) + nSequence (4) = 40
+                            const overheadWU = overheadBytes * 4;                // 40 * 4 = 160 WU
+                            const totalWU = p2shSatisfactionWU + overheadWU;
+                            
+                            successMsg += `<br>Spending cost analysis (P2SH):<br>`;
+                            successMsg += `Satisfaction cost (scriptSig content): ${p2shSatisfactionWU} WU<br>`;
+                            successMsg += `Input overhead (outpoint + nSequence): ${overheadWU} WU<br>`;
+                            successMsg += `Per-input total: ${totalWU} WU<br><br>`;
+                        } else if (context === 'segwit') {
+                            // For Segwit v0 (P2WSH)
+                            const scriptWeight = result.script_size;            // e.g. 35
+                            const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
+                            
+                            const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
+                            const satisfactionTotal = scriptWeight + inputWeight; // 35 + 73 = 108
+                            const inputOverhead = 160;                          // outpoint (36) + nSequence (4) = 40 bytes × 4
+                            const perInputTotal = satisfactionTotal + inputOverhead; // 108 + 160 = 268
+                            
+                            successMsg += `<br>Spending cost analysis:<br>`;
+                            successMsg += `Script (witnessScript): ${scriptWeight} WU<br>`;
+                            successMsg += `Input (witness, excl. script): ${inputWeight}.000000 WU<br>`;
+                            successMsg += `Satisfaction total: ${satisfactionTotal}.000000 WU<br>`;
+                            successMsg += `Input overhead (outpoint + nSequence): ${inputOverhead} WU<br>`;
+                            successMsg += `Per-input total: ${perInputTotal} WU<br><br>`;
+                        } else {
+                            // For other contexts (taproot_single_leaf, etc.) - keep the simpler format
+                            const scriptWeight = result.script_size;            // e.g. 35
+                            const maxSat = result.max_satisfaction_size;        // e.g. 109 (full witness bytes)
+                            
+                            const inputWeight = maxSat - (1 + scriptWeight);    // 109 - (1 + 35) = 73
+                            const totalWeight = scriptWeight + inputWeight;     // 35 + 73 = 108
+                            
+                            successMsg += `<br>Spending cost analysis:<br>`;
+                            successMsg += `Script: ${scriptWeight} WU<br>`;
+                            successMsg += `Input: ${inputWeight}.000000 WU<br>`;
+                            successMsg += `Total: ${totalWeight}.000000 WU<br><br>`;
+                        }
                     } else if (result.max_satisfaction_size) {
                         // Fallback - show satisfaction size
                         successMsg += `<br>Spending cost analysis:<br>`;
@@ -1019,7 +1108,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 60 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors, VaultXOnly1-2 X-only keys, and DavidTimeout/HelenTimeout timeout keys with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -1037,7 +1126,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 60 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors, VaultXOnly1-2 X-only keys, and DavidTimeout/HelenTimeout timeout keys with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -2054,26 +2143,68 @@ class MiniscriptCompiler {
         // Define all key pools (compressed: 60 keys, others: 20 keys each)
         const keyPools = {
             compressed: [
-                '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-                '03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd',
-                '03defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34',
-                '034cf034640859162ba19ee5a5a33e713a86e2e285b79cdaf9d5db4a07aa59f765',
-                '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-                '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-                '03774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb',
-                '02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13',
-                '03d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a',
-                '02791ca97e3d5c1dc6bc7e7e1a1e5fc19b90e0e8b1f9f0f1b2c3d4e5f6a7b8c9',
-                '03581c63a4f65b4dfb3baf7d5c3e5a6d4f0e7b2c8a9f1d3e4b2a5c6d7e8f9a0b',
-                '022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4',
-                '02bf0e7b0c8a7b1f9a3e4d2c5b6a8f9d0e7c1b4a3f6e9d2c5b8a1f4e7d0c3b6a',
-                '032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991',
-                '020e46e79a2a8d12b9b21b533e2f1c6d5a7f8e9c0b1d2a3f4e5c6b7a8f9d0e3c',
-                '03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556',
-                '025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357',
-                '03d30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65',
-                '023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb',
-                '03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe'
+                '03da6a0f9b14e0c82b2e3b0e9f9f3b4a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f',
+                '02c8a5c2e3b4a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3',
+                '03b7a0766e8b6b29700c970dbb0b48ac195cd8aedaa3d73152d01c0771c2874aa9',
+                '02f8073b09f6e6f0342456b8c27fb0187d618653cad737f3117bf5ce5dbb781325',
+                '03889b5a28cfeb2958873df03119a43536c12c52a6484fd4afe71229a5ae06b55c',
+                '021208140fbad9c4df73936df2e7e4a9333ad4925af7532f0c555b37399300e696',
+                '0242b595b5feeb32e4c5a86971542dc6d0ac1627165f22d37332085fc527d1c13f',
+                '02c98f1ee625379323ecaa58806f70f784256d5fc0fe84179935590a2156b233ef',
+                '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
+                '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
+                '03f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
+                '02318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac',
+                '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
+                '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
+                '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
+                '0288c70836e9cb416570e2d693518d6cbee339f72b434630abdca636914bbc123f',
+                '021683fe7f8ebfabf5fb633742d62bec545832b8e4b5cc5edb587d08f8b4f02910',
+                '02d5c06cb7ff25d38cecd81aaa1bf773adeb6617d6eb003fd9f094633f3b4960a6',
+                '03d9be1c4959365a8dcea4aefa16fd59d2dd2283a60f3026e26cf75a431119f8f4',
+                '0391ca383cf8c5c6d6a35f444034acc271987648f3b4f729520fb208683b2b9ef1',
+                // Your new 20 keys
+                '03ba2ce74b3c84c71dce4a26a1333279115584cf87faad02f828668d3e7c47bc3c',
+                '02ffa28c77cae4923aa5eb52795e3fc9e448046064b3d7a765ce7bff73a073f3ed',
+                '0391ca383cf8c5c6d6a35f444034acc271987648f3b4f729520fb208683b2b9ef1',
+                '03b7a0766e8b6b29700c970dbb0b48ac195cd8aedaa3d73152d01c0771c2874aa9',
+                '03d9be1c4959365a8dcea4aefa16fd59d2dd2283a60f3026e26cf75a431119f8f4',
+                '021683fe7f8ebfabf5fb633742d62bec545832b8e4b5cc5edb587d08f8b4f02910',
+                '02d5c06cb7ff25d38cecd81aaa1bf773adeb6617d6eb003fd9f094633f3b4960a6',
+                '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
+                '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
+                '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
+                '0288c70836e9cb416570e2d693518d6cbee339f72b434630abdca636914bbc123f',
+                '03889b5a28cfeb2958873df03119a43536c12c52a6484fd4afe71229a5ae06b55c',
+                '02f8073b09f6e6f0342456b8c27fb0187d618653cad737f3117bf5ce5dbb781325',
+                '02f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
+                '0318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac7',
+                '021208140fbad9c4df73936df2e7e4a9333ad4925af7532f0c555b37399300e696',
+                '0242b595b5feeb32e4c5a86971542dc6d0ac1627165f22d37332085fc527d1c13f',
+                '02c98f1ee625379323ecaa58806f70f784256d5fc0fe84179935590a2156b233ef',
+                '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
+                '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
+                // Third batch - 20 additional keys
+                '03e4c0b897a93b6aec22d8a7a5675788bfe87733bd171f4f55f26b02bcc60b9967',
+                '02cc96023563fe38b3215c38977a7bbf643a1f5922da6a21f8ed193540351c276e',
+                '03d0d9724554e4055798bcbc06a1fc4d84e7167e6ff5993d3dd45f6274f8b21276',
+                '021fa9c19bbed79d9cd8d19daa786c7580b1dc49fb6bee3f8232185b4e6ddb4bc1',
+                '03d295974ab5949100b3da2d3cf4bc5ebab7abfaa698b3db21095f5ce99dc853fd',
+                '03f2cd034586b5b6e91aad965728dde595399ac08c41919bf6b1a4cd1b343ea808',
+                '02462eb2f8570e25c294bb41d2ce07c0fae64cb339d51e41705516e34db3dbab52',
+                '02384ffe04b898c398ed623bde4a6021e626e5e3672f347b4a3c5cb70f562221cd',
+                '0321866a6d38bc813e9b07c7677d387ac500ed9a40b6914ac4fb028612de948cc6',
+                '02ceed6104e12d65a7f400e2324a76b997012958501795d428b6b98e2a260114df',
+                '032acc58ef59d3184ef0c3062520c02cb0259f65b32cd454e7d0f0bc4cfd99ec18',
+                '03689fe598aad546b0d80a1fae9995a4503d8d01d35432943205ff7a43e401541a',
+                '033709f80850266879dda370543a0d2d1cd6c9862a722614d466dd93f7f47eb50a',
+                '03a32f7874fe61b2d785836c6b3afb4352f4936c153d8dbb58302aa21cb241cfdf',
+                '029aac123da5c0460e644ac9ba9c0f9347d69f24120120f9b4a2bff3a64f4c34da',
+                '02b126e068fbd19934fa1f1683053dc3841d37b6fd892b544a61a51213e26c0f69',
+                '03a6ae2758f0d081a22a9331487269b58cc117fa24114b16bc682a61c19b2bdb5e',
+                '03ab2e75bcde03002722d44821b3d7bc61ebfddb488d928edf95d842ca699e1bb9',
+                '02bffe09fc5f0204a8bef65eef4a1cb0d847f03aeb36b56306602d5fd325fbaa19',
+                '021bd9dc0dd14fd7f34ec501892a8bcb725362f20a1541b216721e64f3f4e0b73e'
             ],
             xonly: [
                 'a3a3d9fe61d93ac31ec9699e0407b84e7f23c5bb638f0d755f6053646c1997df',
@@ -2252,123 +2383,7 @@ class MiniscriptCompiler {
         this.isGeneratingKey = false; // Clear flag after generation
     }
 
-    generateCompressedPublicKey(privateKey) {
-        // 66-character compressed keys for Legacy/Segwit v0 (60 keys total)
-        const compressedKeys = [
-            // Original 20 keys
-            '03da6a0f9b14e0c82b2e3b0e9f9f3b4a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f',
-            '02c8a5c2e3b4a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3',
-            '03b7a0766e8b6b29700c970dbb0b48ac195cd8aedaa3d73152d01c0771c2874aa9',
-            '02f8073b09f6e6f0342456b8c27fb0187d618653cad737f3117bf5ce5dbb781325',
-            '03889b5a28cfeb2958873df03119a43536c12c52a6484fd4afe71229a5ae06b55c',
-            '021208140fbad9c4df73936df2e7e4a9333ad4925af7532f0c555b37399300e696',
-            '0242b595b5feeb32e4c5a86971542dc6d0ac1627165f22d37332085fc527d1c13f',
-            '02c98f1ee625379323ecaa58806f70f784256d5fc0fe84179935590a2156b233ef',
-            '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
-            '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
-            '03f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
-            '02318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac',
-            '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
-            '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
-            '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
-            '0288c70836e9cb416570e2d693518d6cbee339f72b434630abdca636914bbc123f',
-            '021683fe7f8ebfabf5fb633742d62bec545832b8e4b5cc5edb587d08f8b4f02910',
-            '02d5c06cb7ff25d38cecd81aaa1bf773adeb6617d6eb003fd9f094633f3b4960a6',
-            '03d9be1c4959365a8dcea4aefa16fd59d2dd2283a60f3026e26cf75a431119f8f4',
-            '0391ca383cf8c5c6d6a35f444034acc271987648f3b4f729520fb208683b2b9ef1',
-            // Your new 20 keys
-            '03ba2ce74b3c84c71dce4a26a1333279115584cf87faad02f828668d3e7c47bc3c',
-            '02ffa28c77cae4923aa5eb52795e3fc9e448046064b3d7a765ce7bff73a073f3ed',
-            '0391ca383cf8c5c6d6a35f444034acc271987648f3b4f729520fb208683b2b9ef1',
-            '03b7a0766e8b6b29700c970dbb0b48ac195cd8aedaa3d73152d01c0771c2874aa9',
-            '03d9be1c4959365a8dcea4aefa16fd59d2dd2283a60f3026e26cf75a431119f8f4',
-            '021683fe7f8ebfabf5fb633742d62bec545832b8e4b5cc5edb587d08f8b4f02910',
-            '02d5c06cb7ff25d38cecd81aaa1bf773adeb6617d6eb003fd9f094633f3b4960a6',
-            '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
-            '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
-            '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
-            '0288c70836e9cb416570e2d693518d6cbee339f72b434630abdca636914bbc123f',
-            '03889b5a28cfeb2958873df03119a43536c12c52a6484fd4afe71229a5ae06b55c',
-            '02f8073b09f6e6f0342456b8c27fb0187d618653cad737f3117bf5ce5dbb781325',
-            '02f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
-            '0318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac7',
-            '021208140fbad9c4df73936df2e7e4a9333ad4925af7532f0c555b37399300e696',
-            '0242b595b5feeb32e4c5a86971542dc6d0ac1627165f22d37332085fc527d1c13f',
-            '02c98f1ee625379323ecaa58806f70f784256d5fc0fe84179935590a2156b233ef',
-            '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
-            '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
-            // Third batch - 20 additional keys
-            '03e4c0b897a93b6aec22d8a7a5675788bfe87733bd171f4f55f26b02bcc60b9967',
-            '02cc96023563fe38b3215c38977a7bbf643a1f5922da6a21f8ed193540351c276e',
-            '03d0d9724554e4055798bcbc06a1fc4d84e7167e6ff5993d3dd45f6274f8b21276',
-            '021fa9c19bbed79d9cd8d19daa786c7580b1dc49fb6bee3f8232185b4e6ddb4bc1',
-            '03d295974ab5949100b3da2d3cf4bc5ebab7abfaa698b3db21095f5ce99dc853fd',
-            '03f2cd034586b5b6e91aad965728dde595399ac08c41919bf6b1a4cd1b343ea808',
-            '02462eb2f8570e25c294bb41d2ce07c0fae64cb339d51e41705516e34db3dbab52',
-            '02384ffe04b898c398ed623bde4a6021e626e5e3672f347b4a3c5cb70f562221cd',
-            '0321866a6d38bc813e9b07c7677d387ac500ed9a40b6914ac4fb028612de948cc6',
-            '02ceed6104e12d65a7f400e2324a76b997012958501795d428b6b98e2a260114df',
-            '032acc58ef59d3184ef0c3062520c02cb0259f65b32cd454e7d0f0bc4cfd99ec18',
-            '03689fe598aad546b0d80a1fae9995a4503d8d01d35432943205ff7a43e401541a',
-            '033709f80850266879dda370543a0d2d1cd6c9862a722614d466dd93f7f47eb50a',
-            '03a32f7874fe61b2d785836c6b3afb4352f4936c153d8dbb58302aa21cb241cfdf',
-            '029aac123da5c0460e644ac9ba9c0f9347d69f24120120f9b4a2bff3a64f4c34da',
-            '02b126e068fbd19934fa1f1683053dc3841d37b6fd892b544a61a51213e26c0f69',
-            '03a6ae2758f0d081a22a9331487269b58cc117fa24114b16bc682a61c19b2bdb5e',
-            '03ab2e75bcde03002722d44821b3d7bc61ebfddb488d928edf95d842ca699e1bb9',
-            '02bffe09fc5f0204a8bef65eef4a1cb0d847f03aeb36b56306602d5fd325fbaa19',
-            '021bd9dc0dd14fd7f34ec501892a8bcb725362f20a1541b216721e64f3f4e0b73e'
-        ];
-        
-        // 64-character X-only keys for Taproot (20 keys)
-        const xOnlyKeys = [
-            'f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-            'a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd',
-            'defdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34',
-            '4cf034640859162ba19ee5a5a33e713a86e2e285b79cdaf9d5db4a07aa59f765',
-            '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-            'c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-            '774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb',
-            'e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13',
-            'd01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a',
-            '791ca97e3d5c1dc6bc7e7e1a1e5fc19b90e0e8b1f9f0f1b2c3d4e5f6a7b8c9',
-            '581c63a4f65b4dfb3baf7d5c3e5a6d4f0e7b2c8a9f1d3e4b2a5c6d7e8f9a0b',
-            '2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4',
-            'bf0e7b0c8a7b1f9a3e4d2c5b6a8f9d0e7c1b4a3f6e9d2c5b8a1f4e7d0c3b6a',
-            '2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991',
-            '0e46e79a2a8d12b9b21b533e2f1c6d5a7f8e9c0b1d2a3f4e5c6b7a8f9d0e3c',
-            'fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556',
-            '5476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357',
-            'd30199d74fb5a22d47b6e054e2f378cedacffcb89904a61d75d0dbd407143e65',
-            '3da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb',
-            'acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe'
-        ];
-        
-        // Get selected context
-        const selectedContext = document.querySelector('input[name="context"]:checked')?.value || 'segwit';
-        
-        // Choose key pool based on context
-        let keyPool;
-        if (selectedContext === 'taproot') {
-            keyPool = xOnlyKeys; // 64-character X-only keys for Taproot
-        } else {
-            keyPool = compressedKeys; // 66-character compressed keys for Legacy/Segwit
-        }
-        
-        // Get already used keys
-        const usedKeys = Array.from(this.keyVariables.values());
-        
-        // Filter out already used keys from the appropriate pool
-        const availableKeys = keyPool.filter(key => !usedKeys.includes(key));
-        
-        // If all keys are used, return a random one anyway
-        const keysToUse = availableKeys.length > 0 ? availableKeys : keyPool;
-        
-        // Use private key bytes to deterministically select from available keys
-        const index = privateKey.reduce((acc, byte) => acc + byte, 0) % keysToUse.length;
-        return keysToUse[index];
-    }
-
+  
     addKeyVariable() {
         const name = document.getElementById('key-name-input').value.trim();
         const value = document.getElementById('key-value-input').value.trim();
@@ -2447,19 +2462,185 @@ class MiniscriptCompiler {
     loadKeyVariables() {
         try {
             const saved = localStorage.getItem('miniscript-key-variables');
+            const storedVersion = localStorage.getItem('defaultVariablesVersion');
+            
             if (saved) {
+                // Load existing variables
                 const keyVars = JSON.parse(saved);
                 this.keyVariables = new Map(Object.entries(keyVars));
+                
+                // Check if we need to add new defaults (only if version doesn't exist or is lower)
+                if (!storedVersion || this.compareVersions(storedVersion, this.DEFAULT_VARIABLES_VERSION) < 0) {
+                    console.log('Updating default variables from version', storedVersion || 'none', 'to', this.DEFAULT_VARIABLES_VERSION);
+                    const success = this.addMissingDefaults();
+                    if (success) {
+                        localStorage.setItem('defaultVariablesVersion', this.DEFAULT_VARIABLES_VERSION);
+                    }
+                }
             } else {
-                // Add default keys if none exist
+                // First time - add all defaults
+                console.log('First time setup - adding all default variables');
                 this.addDefaultKeys();
+                localStorage.setItem('defaultVariablesVersion', this.DEFAULT_VARIABLES_VERSION);
             }
+            
             this.displayKeyVariables();
         } catch (error) {
             console.error('Failed to load key variables:', error);
             this.keyVariables = new Map();
             this.addDefaultKeys();
+            localStorage.setItem('defaultVariablesVersion', this.DEFAULT_VARIABLES_VERSION);
         }
+    }
+
+    initializeDefaultVariables() {
+        // Initialize default keys map - single source of truth
+        
+        // Legacy/Segwit keys (compressed, 66-char, starting with 02/03) - for general examples
+        // Using user-provided keys from the list
+        this.defaultVariables.set('Alice', '033108da02281dbf63d0480e1e03c4a3c6c7393174b1576fe4178691fd48fb8b14');
+        this.defaultVariables.set('Bob', '027b9e2fc66d4739419e6a3ac53094c712e45c7487ffdaa5702db56ac776b9aa1a');
+        this.defaultVariables.set('Charlie', '03aad49a4e5797120937d12ecce2d9bb5d084f23328d8c087ee11c1ffb32dfb147');
+        this.defaultVariables.set('Eva', '02f40e525d4afb19a201a6a2c682ead78a6acc3e8c7a5cd62eed06aff293226344');
+        this.defaultVariables.set('Frank', '02a637b9be8d76a819335bd0b45003999536978458751116533d3509bca60a3644');
+        this.defaultVariables.set('Lara', '0351997c99a7a836f245f9dc41a6d69ce4e12a34a2a03426255459d6a687aea6fb');
+        this.defaultVariables.set('Mike', '039fb9fb76b517a4b4abf669753f8d15ea2662406f41d81cf653786d5e801669e6');
+        this.defaultVariables.set('Nina', '03bbcf8cec17f38805f85caebedadd11249288982116a36a04d0bde7536cb398ba');
+        this.defaultVariables.set('Oliver', '0268247923e4aa3ada325273da449120e4636cb2c93ecd3f1de19d06e21c1d791b');
+        this.defaultVariables.set('Paul', '03d880ecc7398be443de5a7a771b2abc1fad0e53019cb02ebe54b7023a92224602');
+        this.defaultVariables.set('Quinn', '02f64a9e5d4b016f7ffd399565ee9184b0ca9e6cd741729135dded51a30b32bac5');
+        this.defaultVariables.set('Rachel', '0341128d2ed2a33724fc5f414ac758208cb7ece905fc3b28c4ecb7c5ce03c63d42');
+        this.defaultVariables.set('Sam', '0324b5c4d0352cb6f81279cf997f20edfd1917933f3c90031b81438d72df339a77');
+        this.defaultVariables.set('Tina', '03f6f1ee1b5bdbbc025743f6949df194fb15553ee1ad9da0cb5ee7bf1bfac7d072');
+        this.defaultVariables.set('Uma', '02667d7fe14ee12bc1b2c648b76a1db859914a0f3c51cd893091b6f1eb71387708');
+        
+        // Taproot keys (x-only, 64-char) - for Taproot examples
+        // NUMS is always the standard "Nothing Up My Sleeve" point
+        this.defaultVariables.set('NUMS', '50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0');
+        
+        // Using user-provided x-only keys
+        this.defaultVariables.set('David', '949d28ca35b73310be212fda35ce9a6e65cd7187113dfcc614f16288d184cc07');
+        this.defaultVariables.set('Helen', 'f5464d4ed9a15e1690c38101dd5a9338f61323e01afbedef0dce7ee899599d07');
+        this.defaultVariables.set('Ivan', 'aa93ec97d13000b361e4363f0e37699eecca9833d20fd238a1f1983f8b133c77');
+        this.defaultVariables.set('Julia', '12feef5cbd455473cd23d58a4e901149bcb5e2704ffbfb1833b4ba10ab622582');
+        this.defaultVariables.set('Karl', 'b909dbdd62c735681c7ee82df9096a3d5fcb9dfcf8f260f27c8029d4105916cf');
+        
+        // Complex descriptor keys
+        this.defaultVariables.set('TestnetKey', '[C8FE8D4F/48h/1h/123h/2h]tpubDDEe6Dc3LW1JEUzExDRZ3XBzcAzYxMTfVU5KojsTwXoJ4st6LzqgbFZ1HhDBdTptjXH9MwgdYG4K7MNJBfQktc6AoS8WeAWFDHwDTu99bZa/1/1');
+        this.defaultVariables.set('MainnetKey', '[C8FE8D4F/48h/1h/123h/2h]xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda/0/0');
+        this.defaultVariables.set('RangeKey', '[C8FE8D4F/48h/1h/123h/2h]tpubDDEe6Dc3LW1JEUzExDRZ3XBzcAzYxMTfVU5KojsTwXoJ4st6LzqgbFZ1HhDBdTptjXH9MwgdYG4K7MNJBfQktc6AoS8WeAWFDHwDTu99bZa/<1;0>/*');
+        
+        // Vault keys for complex vault examples with range descriptors
+        this.defaultVariables.set('VaultKey1', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<10;11>/*');
+        this.defaultVariables.set('VaultKey2', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<8;9>/*');
+        this.defaultVariables.set('VaultKey3', '[C8FE8D4F/48h/1h/123h/2h]tpubDET9Lf3UsPRZP7TVNV8w91Kz8g29sVihfr96asYsJqUsx5pM7cDvSCDAsidkQY9bgfPyB28bCA4afiJcJp6bxZhrzmjFYDUm92LG3s3tmP7/<6;7>/*');
+        this.defaultVariables.set('VaultKey4', '[7FBA5C83/48h/1h/123h/2h]tpubDE5BZRXogAy3LHDKYhfuw2gCasYxsfKPLrfdsS9GxAV45v7u2DAcBGCVKPYjLgYeMMKq29aAHy2xovHL9KTd8VvpMHfPiDA9jzBwCg73N5H/<6;7>/*');
+        this.defaultVariables.set('VaultKey5', '[7FBA5C83/48h/1h/123h/2h]tpubDE5BZRXogAy3LHDKYhfuw2gCasYxsfKPLrfdsS9GxAV45v7u2DAcBGCVKPYjLgYeMMKq29aAHy2xovHL9KTd8VvpMHfPiDA9jzBwCg73N5H/<4;5>/*');
+        this.defaultVariables.set('VaultKey6', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<12;13>/*');
+        this.defaultVariables.set('VaultKey7', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<10;11>/*');
+        this.defaultVariables.set('VaultKey8', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<8;9>/*');
+        this.defaultVariables.set('VaultKey9', '[CB6FE460/48h/1h/123h/2h]tpubDFJbyzFGfyGhwjc2CP7YHjD3hK53AoQWU2Q5eABX2VXcnEBxWVVHjtZhzg9PQLnoHe6iKjR3TamW3N9RVAY5WBbK5DBAs1D86wi2DEgMwpN/<6;7>/*');
+        this.defaultVariables.set('VaultKey10', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<16;17>/*');
+        this.defaultVariables.set('VaultKey11', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<14;15>/*');
+        this.defaultVariables.set('VaultKey12', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<12;13>/*');
+        this.defaultVariables.set('VaultKey13', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<10;11>/*');
+        this.defaultVariables.set('VaultKey14', '[9F996716/48h/1h/0h/2h]tpubDFCY8Uy2eRq7meifV2Astvt8AsTLsrMX7vj7cLtZ6aPRcYGsAL4PXY1JZR2SfD3i2CRAwy9fm9Cq3xVeuWsvAcRnz9oc1umGL68Wn9QeT3q/<8;9>/*');
+        this.defaultVariables.set('VaultKey15', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<16;17>/*');
+        this.defaultVariables.set('VaultKey16', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<14;15>/*');
+        this.defaultVariables.set('VaultKey17', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<12;13>/*');
+        this.defaultVariables.set('VaultKey18', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<10;11>/*');
+        this.defaultVariables.set('VaultKey19', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHec6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<8;9>/*');
+        
+        // X-only vault keys for Taproot inheritance scenarios
+        // Using user-provided x-only keys
+        this.defaultVariables.set('VaultXOnly1', '212072cffcfb16565a87e9155f0db052184310a3279d215fea838dd7eaf6d70e');
+        this.defaultVariables.set('VaultXOnly2', 'b935fb5e50e2e52248675298e33a1dd35df50f223a8039be628842dc489f3519');
+        
+        // Timeout keys for Lightning Channel scenarios (x-only keys)
+        this.defaultVariables.set('DavidTimeout', '5900cf902caf8f3a2ce4f7fed091078b4124ea59ade0af3b8e7c5cce596a83af');
+        this.defaultVariables.set('HelenTimeout', '041a8011e4f5c9e61f4baccdc3a6e7d0c3043e291885ed7d5a5661ae85112704');
+        
+        // Federation keys for Liquid Federation example (x-only for Taproot)
+        // Using user-provided x-only keys
+        this.defaultVariables.set('Fed1', 'ac84be904145f71bcf00316eb9883eb06b4f0de21ae8f85bc6d3a133203c2bfa');
+        this.defaultVariables.set('Fed2', 'eebc41183c92fafe6c5006fe0d4a9beff8c0da840cef3a8c90dad6d77bf8be6e');
+        this.defaultVariables.set('Fed3', 'ca3e617588daa3ebfcba2e55344dabe87940af10959e3f2bba8ab891ea1f26fe');
+        this.defaultVariables.set('Fed4', '714bab132ece7a2a53e7def19bbe2ec2f4bb21c2a19d6b94d3d49ae7084ceb0a');
+        this.defaultVariables.set('Fed5', 'b34dad68287687c6d412993f3ccac526deb46de31dac2784de29e9645ea2de65');
+        this.defaultVariables.set('Fed6', 'ca0cc998e3f786bca473eeee826c23fbcebd7f40523559420ccd6e9cd218f4eb');
+        this.defaultVariables.set('Fed7', '69606629f514473abc06360190f7ad4cfc5628553b0e22f3fbf47429f81aedd3');
+        
+        // Emergency keys for Liquid Federation example (x-only for Taproot)
+        this.defaultVariables.set('Emergency1', '2593cb7035c6a2b88fe44e95204abbac2b9aae52ed4867e9496b547c8040f125');
+        this.defaultVariables.set('Emergency2', '760637963d15b04f7163e010f8715f99d893c0534d9b0262b77f9169f5fb9c4d');
+        this.defaultVariables.set('Emergency3', '1b91b27aa57ac32a9b36c58bfd7dc7ff5a28a198e16f4c4df4778fd20cfe7fcb');
+        
+        // Joint custody keys for 3-key joint custody example (compressed keys)
+        // Using user-provided compressed keys
+        this.defaultVariables.set('jcKey1', '033041bd15eb4dbbd07c1c740451fc2eebbbc11286b1af1f402c8e580ceac25fd1');
+        this.defaultVariables.set('jcKey2', '03e9bb7e2d23b9478e13faef05418f7e09c86137c72f4e9bf61cd52e6a9e100647');
+        this.defaultVariables.set('jcKey3', '034adf56653cd9bdef9cb4eaa81223ea98a27209e6da87ee8ece3a4b562fa4924b');
+        this.defaultVariables.set('saKey', '0245a02e01f1040ee34d1f58251bc23de26b7aaf79b6b38133a5b98f6cad43380a');
+        this.defaultVariables.set('jcAg1', '024f5870935b3c8991e48c2f135f4f85d9d421417aae20acf2835b6e69fc0128af');
+        this.defaultVariables.set('jcAg2', '03c073d7a1c4cc21f9013fc83d6321450b7cc9070c661e903cc3ea369cb523b6ff');
+        this.defaultVariables.set('jcAg3', '03925530b4936876374f70134fb2bdeef911c37949a87d26f70ff477c22a9aad15');
+        this.defaultVariables.set('recKey1', '03e6e4229201dd72ed13d92fb966cd155bea34d2b866ca98159eec1688a7f8b03b');
+        this.defaultVariables.set('recKey2', '0349ab1d8965e88bbed5ab193463ec0abd7d9cf8958f15d1c074e474ee1e25d11b');
+        this.defaultVariables.set('recKey3', '021c46ba9e321cba31ef09b4c8bd996b31306c904f748aae96a5bb22150e54ff00');
+        
+        // Liana wallet descriptor keys for multi-tier recovery vault example
+        this.defaultVariables.set('LianaDesc1', '[b883f127/48\'/1\'/2\'/2\']tpubDEP7MLK6TGe1EWhKGpMWdQQCvMmS6pRjCyN7PW24afniPJYdfeMMUb2fau3xTku6EPgA68oGuR4hSCTUpu2bqaoYrLn2UmhkytXXSzxcaqt/0/0');
+        this.defaultVariables.set('LianaDesc2', '[636adf3f/48\'/1\'/2\'/2\']tpubDFnPUtXZhnftEFD5vg4LfVoApf5ZVB8Nkrf8CNe9pT9j1EEPXssJnMgAjmvbTChHugnkfVfsmGafFnE6gwoifJNybSasAJ316dRpsP86EFb/0/0');
+        this.defaultVariables.set('LianaDesc3', '[b883f127/48\'/1\'/3\'/2\']tpubDFPMBua4idthySDayX1GxgXgPbpaEVfU7GwMc1HAfneknhqov5syrNuq4NVdSVWa2mPVP3BD6f2pGB98pMsbnVvWqrxcLgwv9PbEWyLJ6cW/0/0');
+        this.defaultVariables.set('LianaDesc4', '[636adf3f/48\'/1\'/1\'/2\']tpubDDvF2khuoBBj8vcSjQfa7iKaxsQZE7YjJ7cJL8A8eaneadMPKbHSpoSr4JD1F5LUvWD82HCxdtSppGfrMUmiNbFxrA2EHEVLnrdCFNFe75D/0/0');
+        this.defaultVariables.set('LianaDesc5', '[636adf3f/48\'/1\'/0\'/2\']tpubDEE9FvWbG4kg4gxDNrALgrWLiHwNMXNs8hk6nXNPw4VHKot16xd2251vwi2M6nsyQTkak5FJNHVHkCcuzmvpSbWHdumX3DxpDm89iTfSBaL/0/0');
+        this.defaultVariables.set('LianaDesc6', '[b883f127/48\'/1\'/0\'/2\']tpubDET11c81MZjJvsqBikGXfn1YUzXofoYQ4HkueCrH7kE94MYkdyBvGzyikBd2KrcBAFZWDB6nLmTa8sJ381rWSQj8qFvqiidxqn6aQv1wrJw/0/0');
+        this.defaultVariables.set('LianaDesc7', '[b883f127/48\'/1\'/1\'/2\']tpubDEA6SKh5epTZXebgZtcNxpLj6CeZ9UhgHGoGArACFE7QHCgx76vwkzJMP5wQ9yYEc6g9qSGW8EVzn4PhRxiFz1RUvAXBg7txFnvZFv62uFL/0/0');
+    }
+
+    addMissingDefaults() {
+        // Use the shared defaultVariables map instead of calling getDefaultKeys()
+        const existingValues = new Set([...this.keyVariables.values()]); // Get all current values
+        let addedCount = 0;
+        let skippedConflicts = 0;
+        
+        this.defaultVariables.forEach((defaultValue, keyName) => {
+            // Only add if key name doesn't exist
+            if (!this.keyVariables.has(keyName)) {
+                // Check if the value conflicts with existing values
+                if (existingValues.has(defaultValue)) {
+                    console.log(`Skipping ${keyName}: value already exists for another key`);
+                    skippedConflicts++;
+                } else {
+                    this.keyVariables.set(keyName, defaultValue);
+                    existingValues.add(defaultValue); // Track the new value
+                    addedCount++;
+                    console.log(`Added missing default: ${keyName}`);
+                }
+            }
+        });
+        
+        if (addedCount > 0 || skippedConflicts > 0) {
+            console.log(`Smart merge completed: Added ${addedCount} new variables, skipped ${skippedConflicts} conflicts`);
+            this.saveKeyVariables();
+        }
+        
+        return addedCount > 0; // Return success if any were added
+    }
+
+    compareVersions(v1, v2) {
+        // Compare version strings like "1.1.0" vs "1.2.0"
+        // Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+        const parts1 = v1.split('.').map(Number);
+        const parts2 = v2.split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            const part1 = parts1[i] || 0;
+            const part2 = parts2[i] || 0;
+            if (part1 < part2) return -1;
+            if (part1 > part2) return 1;
+        }
+        return 0;
     }
 
     addDefaultKeys() {
@@ -2516,6 +2697,28 @@ class MiniscriptCompiler {
         this.keyVariables.set('VaultKey18', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<10;11>/*');
         this.keyVariables.set('VaultKey19', '[0A4E923E/48h/1h/123h/2h]tpubDFNEWRT6uX3mjWE2c6CnbdQ7awvvnGub5s9ntaSyoQ4SSNmhHEc6RJ4Exwd2aLfGppDhvvey7gvYc7jiYfDFWtYG2sKXjKthhSs1X9yBkSy/<8;9>/*');
         
+        // X-only vault keys for Taproot inheritance scenarios
+        this.keyVariables.set('VaultXOnly1', 'a3a3d9fe61d93ac31ec9699e0407b84e7f23c5bb638f0d755f6053646c1997df');
+        this.keyVariables.set('VaultXOnly2', '7a6f3dbd569d59ee017341b96166b4f7e3dafbb31ec2212656af2fd907ca8572');
+        
+        // Timeout keys for Lightning Channel scenarios  
+        this.keyVariables.set('DavidTimeout', 'd392b6f1f367f211f42f9f78b70b3b0b396ceee8d7b271f098d253ead0991d23');
+        this.keyVariables.set('HelenTimeout', '6807e6f3055807b9fac782114835be3627a6adbcf78624748eff45ab3ef05834');
+        
+        // Federation keys for Liquid Federation example (x-only for Taproot)
+        this.keyVariables.set('Fed1', 'bc2ee26fb95878c997c000b2fefb9d46cc83abf904214396a7c2c1ced8e1cbe2');
+        this.keyVariables.set('Fed2', 'd5d3a9a02cf7362288af2c602be92d81ac058b2aefa7e067ef6bb824814460d8');
+        this.keyVariables.set('Fed3', '6973ee26249a5bf1477f16b16676e26bc65fdae799c50f6b69e7a78f817525da');
+        this.keyVariables.set('Fed4', '1ea6a146008c42b2489cb90c33eb2760fe3442a1e6a43782819ec14f10fe2eda');
+        this.keyVariables.set('Fed5', '54311aa0b1046a7992a08cf5fd798ff22b913081b120fb0a4adab87af276071c');
+        this.keyVariables.set('Fed6', '3a810842fba0133e13a903567dc2c02bfe2b1b95fecc54dda12a1c0905bfb260');
+        this.keyVariables.set('Fed7', 'faa19fc368d13652b6152a4a52caf8a5fa45d07420783a956ccc6cf0e62ef3c8');
+        
+        // Emergency keys for Liquid Federation example (x-only for Taproot)
+        this.keyVariables.set('Emergency1', '475f47a4cf3d7bdf9115e0c982c17cab2cfe05d5c7a7771d1923bb1a03600e2b');
+        this.keyVariables.set('Emergency2', '2ae7ed98011ea2d21f750b1e096aea8ad6e214599543b2e46b031aa179d7ec03');
+        this.keyVariables.set('Emergency3', 'b0f78c954e7ab83fb9f0c858eb9c7c2d80782671c33fc0556b7dc3ded16a72d4');
+        
         // Joint custody keys for 3-key joint custody example
         this.keyVariables.set('jcKey1', '03fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556');
         this.keyVariables.set('jcKey2', '025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357');
@@ -2542,7 +2745,7 @@ class MiniscriptCompiler {
     }
 
     restoreDefaultKeys() {
-        if (confirm('This will restore 56 default key variables: Alice, Bob, Charlie, Eva, Frank, Lara, Helen, Ivan, Julia, Karl, David, Mike, Nina, Oliver, Paul, Quinn, Rachel, Sam, Tina, Uma, plus joint custody keys (jcKey1, jcKey2, jcKey3, saKey, jcAg1, jcAg2, jcAg3, recKey1, recKey2, recKey3), plus descriptor keys (TestnetKey, MainnetKey, RangeKey, VaultKey1-19), plus Liana wallet keys (LianaDesc1-7). Continue?')) {
+        if (confirm('This will restore 70 default key variables: Alice, Bob, Charlie, Eva, Frank, Lara, Helen, Ivan, Julia, Karl, David, Mike, Nina, Oliver, Paul, Quinn, Rachel, Sam, Tina, Uma, plus joint custody keys (jcKey1, jcKey2, jcKey3, saKey, jcAg1, jcAg2, jcAg3, recKey1, recKey2, recKey3), plus descriptor keys (TestnetKey, MainnetKey, RangeKey, VaultKey1-19), plus X-only vault keys (VaultXOnly1, VaultXOnly2), plus timeout keys (DavidTimeout, HelenTimeout), plus federation keys (Fed1-7), plus emergency keys (Emergency1-3), plus Liana wallet keys (LianaDesc1-7). Continue?')) {
             this.addDefaultKeys();
         }
     }
@@ -2656,7 +2859,7 @@ class MiniscriptCompiler {
             let match;
             while ((match = pattern.exec(expression)) !== null) {
                 if (pattern.source.includes('multi')) {
-                    // Special handling for multi() - split the variable list
+                    // Special handling for multi() and multi_a() - split the variable list
                     const variables = match[1].split(',').map(v => v.trim());
                     variables.forEach(variable => {
                         if (this.isValidVariableName(variable)) {
@@ -2769,8 +2972,8 @@ class MiniscriptCompiler {
         const variablePatterns = [
             // pk(VarName), pkh(VarName), pk_k(VarName), pk_h(VarName)
             /\b(?:pk|pkh|pk_k|pk_h)\(([A-Za-z_][A-Za-z0-9_]*)\)/g,
-            // multi(threshold,VarName1,VarName2,...)
-            /\bmulti\([0-9]+,([A-Za-z_][A-Za-z0-9_,\s]*)\)/g
+            // multi(threshold,VarName1,VarName2,...) and multi_a(threshold,VarName1,VarName2,...)
+            /\b(?:multi|multi_a)\([0-9]+,([A-Za-z_][A-Za-z0-9_,\s]*)\)/g
         ];
         
         const foundVariables = new Set();
@@ -2779,7 +2982,7 @@ class MiniscriptCompiler {
             let match;
             while ((match = pattern.exec(expression)) !== null) {
                 if (pattern.source.includes('multi')) {
-                    // Special handling for multi() - split the variable list
+                    // Special handling for multi() and multi_a() - split the variable list
                     const variables = match[1].split(',').map(v => v.trim());
                     variables.forEach(variable => {
                         if (this.isValidVariableName(variable)) {
@@ -2799,11 +3002,13 @@ class MiniscriptCompiler {
         for (const variable of foundVariables) {
             // Only add if it's not already defined and not a hex key
             if (!this.keyVariables.has(variable) && !this.isHexString(variable)) {
+                const suggestedType = this.suggestKeyTypeForContext();
+                console.log(`Adding variable ${variable} with suggested type: ${suggestedType}`);
                 keys.push({
                     value: variable,
                     type: 'variable',
                     isDefault: true, // Variables are selected by default
-                    keyType: this.suggestKeyTypeForContext() // Default key type based on current context
+                    suggestedType: suggestedType // Default key type based on current context
                 });
             }
         }
@@ -2824,19 +3029,26 @@ class MiniscriptCompiler {
     }
     
     suggestKeyTypeForContext() {
-        // Get current context from radio buttons
-        const contextRadio = document.querySelector('input[name="context"]:checked');
-        const context = contextRadio ? contextRadio.value : 'segwit';
+        // Get current context from radio buttons - check miniscript context first (for miniscript extraction)
+        const miniscriptContextRadio = document.querySelector('input[name="context"]:checked');
+        const policyContextRadio = document.querySelector('input[name="policy-context"]:checked');
+        
+        // Use miniscript context if available, otherwise policy context
+        const context = miniscriptContextRadio ? miniscriptContextRadio.value : 
+                       (policyContextRadio ? policyContextRadio.value : 'segwit');
+        
+        console.log('Detected context for key extraction:', context);
         
         // Suggest appropriate key type for context
-        switch (context) {
-            case 'taproot':
-                return 'x-only';
-            case 'legacy':
-            case 'segwit':
-            default:
-                return 'compressed';
+        // X-only keys for ANY taproot context
+        if (context.includes('taproot')) {
+            console.log('Suggesting x-only keys for taproot context');
+            return 'x-only';
         }
+        
+        // Compressed keys for legacy and segwit
+        console.log('Suggesting compressed keys for non-taproot context');
+        return 'compressed';
     }
 
     suggestKeyName(keyValue, existingNames = []) {
@@ -3155,7 +3367,9 @@ class MiniscriptCompiler {
                            placeholder="Enter variable name"
                            ${isExisting ? 'disabled' : ''}
                            style="flex: 1; padding: 6px; background: ${isExisting ? 'var(--disabled-bg)' : 'var(--bg-color)'}; border: 1px solid var(--border-color); border-radius: 4px; color: ${isExisting ? 'var(--text-muted)' : 'var(--text-primary)'};">
-                    ${keyObj.type === 'variable' && !isExisting ? `
+                    ${keyObj.type === 'variable' && !isExisting ? (() => {
+                        console.log(`Variable ${keyObj.value} has suggestedType: ${keyObj.suggestedType}`);
+                        return `
                     <label style="color: var(--text-secondary); min-width: 40px;">Type:</label>
                     <select id="extract-type-${index}" 
                             style="padding: 6px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
@@ -3163,7 +3377,8 @@ class MiniscriptCompiler {
                         <option value="x-only" ${keyObj.suggestedType === 'x-only' ? 'selected' : ''}>X-Only (64 chars)</option>
                         <option value="xpub" ${keyObj.suggestedType === 'xpub' ? 'selected' : ''}>xpub (mainnet)</option>
                         <option value="tpub" ${keyObj.suggestedType === 'tpub' ? 'selected' : ''}>tpub (testnet)</option>
-                    </select>` : ''}
+                    </select>`;
+                    })() : ''}
                 </div>
             `;
             
@@ -4422,7 +4637,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 60 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors, VaultXOnly1-2 X-only keys, and DavidTimeout/HelenTimeout timeout keys with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -4440,7 +4655,7 @@ class MiniscriptCompiler {
 <div>→ <strong>Restore defaults:</strong> Restore common test keys (Alice, Bob, Charlie, etc.) with pre-generated public keys.<br>&nbsp;&nbsp;Useful for examples that stopped working, usually due to a key deletion</div>
 <div style="margin-top: 10px; display: flex; gap: 10px;">
 <button onclick="compiler.extractKeysFromPolicy()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Automatically scan your policy expression to find undefined variables and convert them to reusable key variables. Select which variables to extract and choose the appropriate key type for each.">🔑 Extract keys</button>
-<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 56 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
+<button onclick="compiler.restoreDefaultKeys()" class="secondary-btn" style="padding: 4px 8px; font-size: 12px; min-width: 120px;" title="Add 60 commonly used test keys (Alice, Bob, Charlie, David, Eva, Frank, NUMS, etc.) plus VaultKey1-19 range descriptors, VaultXOnly1-2 X-only keys, and DavidTimeout/HelenTimeout timeout keys with pre-generated public keys for each type. This won't overwrite existing keys with the same names.">🔄 Restore defaults</button>
 </div>
 </div>
                     `;
@@ -5188,7 +5403,7 @@ class MiniscriptCompiler {
 
     getContextDisplayName(context) {
         const contextMap = {
-            'legacy': 'Legacy (p2WSH)',
+            'legacy': 'Legacy (p2SH)',
             'segwit': 'Segwit v0 (p2WSH)',  
             'taproot': 'Taproot (Single leaf)',
             'taproot-multi': 'Taproot (Script path)',
@@ -6899,401 +7114,6 @@ window.loadPolicyExample = function(example, exampleId) {
     autoCompileIfEnabled('policy');
 };
 
-// Global function to show policy descriptions
-window.showPolicyDescription = function(exampleId) {
-    // Check if descriptions are disabled
-    if (localStorage.getItem('showDescriptions') === 'false') {
-        return;
-    }
-    
-    const panel = document.getElementById('policy-description');
-    const contentDiv = panel.querySelector('.description-content');
-    
-        const descriptions = {
-        'single': {
-            title: '📄 Single Key Policy NEW',
-            conditions: '🔓 Alice: Immediate spending (no restrictions)',
-            useCase: '**Personal Wallet:** The simplest Bitcoin wallet structure - one person, one key. Perfect for individual users who want straightforward control over their funds. Most mobile wallets and hardware wallets use this pattern by default.',
-            examples: '💡 **Real-world examples:** Personal savings account, daily spending wallet, individual trading account',
-            efficiency: '⚡ **Efficiency:** Minimal transaction size (~73 bytes witness), lowest fees, fastest signing process',
-            security: '⚠️ **Security trade-offs:** Single point of failure - if Alice loses her key or gets compromised, funds are permanently lost. No redundancy or recovery options built-in.',
-            bestFor: '✅ **Best for:** Individual users, small amounts, frequent transactions, users comfortable with full self-custody responsibility'
-        },
-        'or': {
-            title: '📄 OR Keys Policy - Either Party Access',
-            conditions: '🔓 Alice: Can spend immediately\n🔓 Bob: Can spend immediately (independent access)',
-            useCase: '**Shared Access Wallet:** Either person can spend independently. Common for couples, business partners, or backup access scenarios. Think "joint checking account" where either person can write checks.',
-            examples: '💡 **Real-world examples:** Joint family account, business petty cash, emergency fund shared between spouses, backup key for solo traders',
-            efficiency: '⚡ **Efficiency:** Slightly larger than single key (~105 bytes witness). Spender chooses which key to use, so no coordination needed.',
-            security: '⚠️ **Security trade-offs:** Weakest-link security - compromise of ANY key results in fund loss. However, provides redundancy against key loss (lose one, still have the other).',
-            bestFor: '✅ **Best for:** Trusted partnerships, backup access, situations where convenience matters more than maximum security, emergency access scenarios'
-        },
-        'and': {
-            title: '📄 AND Keys Policy - Dual Authorization',
-            conditions: '🔓 Alice + Bob: Both signatures required (no unilateral spending)',
-            useCase: '**2-of-2 Multisig:** Both parties must agree to every transaction. Perfect for business partnerships, joint investments, or married couples who want shared financial control. Like requiring two signatures on a check.',
-            examples: '💡 **Real-world examples:** Business partnership funds, joint investment account, high-value couple\'s savings, parent-child shared control, corporate treasury requiring dual approval',
-            efficiency: '⚡ **Efficiency:** ~137 bytes witness data. Requires coordination between parties for every transaction, but maximum security.',
-            security: '✅ **Security benefits:** Strongest security - requires compromise of BOTH keys to steal funds. Protects against single key compromise, impulsive spending, and unauthorized transactions.',
-            bestFor: '✅ **Best for:** High-value storage, business partnerships, situations requiring mutual consent, protection against single-person compromise or coercion'
-        },
-        'threshold': {
-            title: '📄 2-of-3 Threshold Policy - Majority Consensus',
-            conditions: '🔓 Any 2 of: Alice, Bob, Charlie (flexible majority control)',
-            useCase: '**Majority Multisig:** Any 2 out of 3 parties can approve transactions. Perfect for small boards, family trusts, or adding redundancy while maintaining control. Like corporate voting where majority wins.',
-            examples: '💡 **Real-world examples:** Board of directors treasury, family trust with multiple trustees, business with 3 partners, estate planning with beneficiaries, crypto startup founder funds',
-            efficiency: '⚡ **Efficiency:** Variable witness size depending on which 2 keys sign (~170-200 bytes). Good balance of security and usability.',
-            security: '✅ **Security benefits:** Survives 1 key loss or compromise. Prevents single-person control while allowing majority decisions. More resilient than 2-of-2 but less than single key.',
-            bestFor: '✅ **Best for:** Small group control, estate planning, business partnerships with 3+ people, backup scenarios where 1 key might be lost, decision-making that benefits from consensus'
-        },
-        'timelock': {
-            title: '📄 Timelock Policy - Immediate vs Delayed Access',
-            conditions: '🔓 Alice: Immediate spending (instant access)\n⏰ Bob: After 144 blocks (~1 day) delay',
-            useCase: '**Emergency Recovery with Cooling Period:** Alice has daily control, Bob can recover funds but must wait. Prevents rushed decisions and provides time for Alice to intervene if needed. Like a bank account with both owner access and emergency power of attorney.',
-            examples: '💡 **Real-world examples:** Personal wallet with family backup, business owner with partner recovery, elderly parent with adult child backup, trader with emergency contact access',
-            efficiency: '⚡ **Efficiency:** Alice\'s path is efficient (~73 bytes), Bob\'s path is larger (~105 bytes) due to timelock verification.',
-            security: '✅ **Security benefits:** Alice retains full control while providing recovery option. 24-hour delay gives Alice time to move funds if Bob\'s key is compromised. Prevents immediate theft through Bob\'s key.',
-            bestFor: '✅ **Best for:** Personal wallets needing backup, elderly users with trusted family, business continuity planning, any scenario where primary user wants emergency recovery with built-in warning time'
-        },
-        'xonly': {
-            title: '📄 Taproot X-only Key - Next-Gen Single Key',
-            conditions: '🔓 David: Immediate spending (Taproot/Schnorr context)',
-            useCase: '**Modern Single Key:** Uses Taproot\'s X-only public keys (32 bytes vs 33 bytes) with Schnorr signatures. More efficient, more private, and enables advanced scripting. The future of single-key Bitcoin wallets.',
-            examples: '💡 **Real-world examples:** Modern hardware wallets, Lightning Network wallets, privacy-focused personal wallets, wallets that might later upgrade to complex scripts',
-            efficiency: '⚡ **Efficiency:** Smaller keys (32 vs 33 bytes), smaller signatures (~64 vs 71 bytes), better batch verification, and identical on-chain appearance regardless of underlying complexity.',
-            security: '✅ **Security benefits:** Same security as regular pubkeys but with better privacy (all Taproot outputs look identical). Enables "pay-to-contract" and other advanced features.',
-            bestFor: '✅ **Best for:** Modern applications, privacy-conscious users, wallets that might later add complex conditions, Lightning Network, applications requiring batch signature verification'
-        },
-        'testnet_xpub': {
-            title: '📄 Testnet Extended Public Key - HD Wallet Demo',
-            conditions: '🔓 TestnetKey: HD wallet extended public key (testnet environment)',
-            useCase: '**Hierarchical Deterministic Wallet:** Demonstrates how modern wallets derive multiple addresses from a single seed. The xpub/tpub allows generating receive addresses without exposing private keys. Essential for business accounting and privacy.',
-            examples: '💡 **Real-world examples:** Business wallets generating customer payment addresses, exchange deposit systems, accounting software, wallet address generation for e-commerce',
-            efficiency: '⚡ **Efficiency:** Same as single key once derived, but enables generating unlimited addresses from one seed. Reduces backup complexity from many keys to one seed.',
-            security: '✅ **Security benefits:** Extended public keys can generate addresses without private key exposure. If one address is compromised, others remain secure. Enables "watching-only" wallets for monitoring.',
-            bestFor: '✅ **Best for:** Businesses receiving many payments, privacy-conscious users (new address per transaction), development and testing, wallets requiring address pre-generation'
-        },
-        'corporate': {
-            title: '📄 Corporate Wallet Policy - Board + Executive Override',
-            conditions: '🔓 Any 2 of: Alice, Bob, Charlie (board majority)\n⏰ Eva (CEO): After January 1, 2026 (time-delayed executive access)',
-            useCase: '**Corporate Treasury:** Daily operations require board majority (2-of-3), but CEO gets emergency access after a specific date. Perfect for businesses with board governance but executive emergency powers.',
-            examples: '💡 **Real-world examples:** Startup treasury with founder override, nonprofit with board control plus executive director emergency access, family business with multiple decision-makers',
-            efficiency: '⚡ **Efficiency:** Board path uses threshold efficiency (~170-200 bytes), CEO path adds timelock verification (~105 bytes).',
-            security: '✅ **Security benefits:** Board control prevents single-person decisions, time-delayed CEO access provides emergency recovery without immediate risk, specific date prevents indefinite executive power.',
-            bestFor: '✅ **Best for:** Corporate treasuries, nonprofits, family businesses, any organization needing board control with executive emergency access, succession planning'
-        },
-        'recovery': {
-            title: '📄 Emergency Recovery Policy - Weighted Priority',
-            conditions: '🔓 Alice: Immediate spending (95% probability weight - primary path)\n⏰ Bob + Charlie + Eva: 2-of-3 after 1008 blocks (~1 week) emergency consensus',
-            useCase: '**Personal Wallet with Family Recovery:** Alice controls daily spending, but family/friends can recover funds if Alice is unavailable for a week. The 95@ weight tells the compiler to optimize for Alice\'s path since it\'s used 95% of the time.',
-            examples: '💡 **Real-world examples:** Individual with trusted family backup, solo business owner with partner emergency access, crypto enthusiast with friend/family recovery network, elderly user with adult children backup',
-            efficiency: '⚡ **Efficiency:** Alice\'s path is highly optimized due to probability weight. Recovery path is larger (~200+ bytes) but rarely used.',
-            security: '✅ **Security benefits:** Alice retains full control, 1-week delay gives Alice time to respond to unauthorized recovery attempts, requires 2-of-3 consensus prevents single family member compromise.',
-            bestFor: '✅ **Best for:** Individual wallets with trusted emergency contacts, estate planning, any scenario where primary user wants family backup without compromising daily control'
-        },
-        'twofa': {
-            title: '📄 2FA + Backup Policy - Multi-Factor Security',
-            conditions: '🔓 Alice + (Bob + secret OR wait 1 year)',
-            useCase: '**Two-Factor Authentication Wallet:** Alice must always sign, plus either Bob (second device/key) with a secret hash, or Alice alone after waiting 1 year. Like 2FA on your crypto wallet - primary key plus second factor, with long-term recovery.',
-            examples: '💡 **Real-world examples:** High-security personal wallet, crypto trader with hardware + mobile 2FA, business owner with primary + backup key + secret, paranoid holder with multiple security layers',
-            efficiency: '⚡ **Efficiency:** Alice+Bob path is moderate (~137 bytes), Alice+secret path adds hash verification (~170 bytes), Alice-alone path after 1 year includes timelock (~105 bytes).',
-            security: '✅ **Security benefits:** Alice always required prevents device compromise, secret hash prevents Bob device compromise, 1-year delay prevents rushed recovery, multiple security factors.',
-            bestFor: '✅ **Best for:** High-value wallets, users comfortable with complexity, scenarios requiring strong 2FA, professional traders, anyone wanting multiple security layers with recovery options'
-        },
-        'inheritance': {
-            title: '📄 Taproot Inheritance Policy - Estate Planning',
-            conditions: '🔓 David: Immediate spending (full control while alive)\n⏰ Helen + Ivan + Julia: 2-of-3 after 26280 blocks (~6 months) beneficiary inheritance',
-            useCase: '**Digital Estate Planning:** David controls funds normally, but if inactive for 6 months, beneficiaries can inherit with majority consensus. Long delay ensures David can intervene if needed and provides time for proper estate proceedings.',
-            examples: '💡 **Real-world examples:** Retirement savings with family inheritance, crypto holder with beneficiaries, business owner with succession plan, elderly user planning estate distribution',
-            efficiency: '⚡ **Efficiency:** David\'s path is efficient Taproot (~64 bytes), inheritance path is larger (~200+ bytes) but only used after death/incapacitation.',
-            security: '✅ **Security benefits:** 6-month delay prevents premature inheritance claims, 2-of-3 consensus prevents single beneficiary compromise, David maintains full control while active, Taproot privacy.',
-            bestFor: '✅ **Best for:** Estate planning, retirement accounts, high-value long-term storage, family wealth transfer, business succession planning, anyone wanting crypto inheritance without trusted third parties'
-        },
-        'delayed': {
-            title: '📄 Taproot 2-of-2 OR Delayed - Cooperative + Emergency',
-            conditions: '🔓 Julia + Karl: Immediate 2-of-2 spending (cooperative path)\n⏰ David: After 144 blocks (~1 day) single-party emergency',
-            useCase: '**Joint Account with Emergency Access:** Julia and Karl must both agree for immediate spending, but David can spend alone after 1 day. Perfect for joint accounts where cooperation is preferred but emergency access is needed.',
-            examples: '💡 **Real-world examples:** Couple\'s shared savings with emergency contact, business partnership with mediator access, joint investment account with trusted third party override',
-            efficiency: '⚡ **Efficiency:** Cooperative path requires both signatures (~137 bytes), David\'s emergency path includes timelock verification (~105 bytes).',
-            security: '✅ **Security benefits:** Cooperative path prevents single-party spending, 24-hour delay gives Julia/Karl time to respond to unauthorized David access, balanced control between cooperation and emergency needs.',
-            bestFor: '✅ **Best for:** Joint accounts with trusted mediator, cooperative funds with emergency provisions, business partnerships with dispute resolution, any scenario balancing cooperation with emergency access'
-        },
-        'hodl': {
-            title: '📄 HODL Wallet Policy - Long-term Savings with Family Backup',
-            conditions: '🔓 Alice: Immediate spending (9x probability weight - optimized for daily use)\n⏰ Bob + Charlie + Eva + Frank: 3-of-4 after 1 year (family consensus for emergency)',
-            useCase: '**Long-term Savings with Deterrent:** Alice controls daily spending but faces family oversight for emergency recovery. The 9@ weight optimizes for Alice while the 1-year delay discourages frequent spending and provides substantial family intervention time.',
-            examples: '💡 **Real-world examples:** Retirement savings account, long-term investment fund, addiction recovery wallet with family oversight, high-value HODL strategy with family safety net',
-            efficiency: '⚡ **Efficiency:** Alice\'s path is highly optimized (~64 bytes) due to 9x weight, family recovery path is larger (~250+ bytes) but designed for rare use.',
-            security: '✅ **Security benefits:** Alice maintains control, 1-year delay prevents impulsive family intervention, 3-of-4 consensus prevents single family member compromise, probability weight optimizes for expected usage.',
-            bestFor: '✅ **Best for:** Long-term savings, retirement planning, addiction recovery scenarios, high-value HODL strategies, family wealth management, anyone wanting spending deterrents with family backup'
-        },
-        'timelocked_thresh': {
-            title: '📄 Timelocked Multisig Policy - Scheduled Activation',
-            conditions: '⏰ Any 2 of: Alice, Bob, Charlie (activated ONLY after January 1, 2026)',
-            useCase: '**Scheduled Fund Release:** Funds cannot be spent by anyone until a specific date, then require 2-of-3 consensus. Perfect for vesting schedules, trust fund releases, planned distributions, or any scenario requiring future activation.',
-            examples: '💡 **Real-world examples:** Employee vesting schedule, trust fund release to beneficiaries, scheduled charity donations, escrow for future projects, company bonus pool release date',
-            efficiency: '⚡ **Efficiency:** All paths require timelock verification plus threshold logic (~200+ bytes), but prevents any spending before activation date.',
-            security: '✅ **Security benefits:** Absolute prevention of early spending (even with all signatures), requires majority consensus after activation, immutable schedule prevents coercion or impulsive changes.',
-            bestFor: '✅ **Best for:** Vesting schedules, trust funds, scheduled distributions, escrow services, any scenario requiring guaranteed future activation with group control, regulatory compliance requiring time delays'
-        },
-        'multi_branch': {
-            title: '📄 Multi-Branch OR Policy - Taproot Key-Path Optimization',
-            conditions: '🔓 David: Key-path spending (most efficient - just a signature)\n🔓 Helen: Script-path spending (reveal script + signature)\n🔓 Uma: Script-path spending (reveal script + signature)',
-            useCase: '**Taproot Smart Optimization:** This policy demonstrates how Taproot automatically optimizes OR conditions. Instead of 3 script leaves, it creates: David as the internal key (key-path spending) + Helen/Uma as script leaves. David gets the most efficient spending path, while Helen/Uma share the script tree.',
-            examples: '💡 **Perfect Optimization:** The miniscript library intelligently chose David for key-path spending (no script revelation needed) and put Helen/Uma in the script tree. This is more efficient than forcing all three into script paths. Switch to "Taproot compilation (multi-leaf TapTree)" mode to see the tr(David,{pk(Helen),pk(Uma)}) structure.',
-            efficiency: '⚡ **Efficiency:** David spends with just 64 bytes (signature only). Helen/Uma each need ~34 bytes script + 64 bytes signature = ~98 bytes. Key-path spending is the most efficient option in Taproot. Total possible: key-path (64B) vs script-path (~98B).',
-            security: '✅ **Security benefits:** David\'s spending reveals no scripts or other participants. Helen/Uma spending only reveals their specific script, not David\'s key or the other person\'s script. Maximum privacy through selective revelation.',
-            bestFor: '✅ **Best for:** Scenarios where one party (David) is primary/preferred and others are alternatives, inheritance with preferred heir + backups, business with primary signer + emergency alternatives, demonstrating Taproot\'s intelligent optimization over naive 3-leaf structures'
-        }
-    };
-    
-    const desc = descriptions[exampleId];
-    if (desc) {
-        // Update the title
-        const titleElement = document.getElementById('policy-title');
-        if (titleElement) {
-            titleElement.textContent = desc.title;
-        }
-        
-        // Update the content in the collapsible area
-        const descContent = document.getElementById('policy-content');
-        if (descContent) {
-            descContent.innerHTML = `
-            <div style="margin-bottom: 8px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Spending Conditions:</strong>
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); white-space: pre-line; font-family: monospace; background: var(--hover-bg); padding: 6px; border-radius: 4px;">${desc.conditions}</div>
-            </div>
-            <div style="margin-bottom: 8px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Use Case & Scenario:</strong>
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); line-height: 1.4;">${desc.useCase}</div>
-            </div>
-            ${desc.examples ? `<div style="margin-bottom: 8px;">
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); line-height: 1.4;">${desc.examples}</div>
-            </div>` : ''}
-            ${desc.efficiency ? `<div style="margin-bottom: 8px;">
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); line-height: 1.4;">${desc.efficiency}</div>
-            </div>` : ''}
-            <div style="margin-bottom: 8px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Security Analysis:</strong>
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); line-height: 1.4;">${desc.security}</div>
-            </div>
-            ${desc.bestFor ? `<div>
-                <div style="margin-top: 3px; font-size: 11px; color: var(--secondary-text); line-height: 1.4;">${desc.bestFor}</div>
-            </div>` : ''}
-        `;
-        }
-        panel.style.display = 'block';
-    }
-};
-
-
-// Global function to show miniscript descriptions
-window.showMiniscriptDescription = function(exampleId) {
-    // Check if descriptions are disabled
-    if (localStorage.getItem('showDescriptions') === 'false') {
-        return;
-    }
-    
-    const panel = document.getElementById('miniscript-description');
-    const contentDiv = panel.querySelector('.description-content');
-    
-    const descriptions = {
-        'single': {
-            title: '⚙️ Single Key Miniscript',
-            structure: 'pk(Alice) → Direct public key check',
-            bitcoinScript: 'Compiles to: <Alice> CHECKSIG',
-            useCase: 'Simplest miniscript - requires a signature from Alice to spend.',
-            technical: '💡 Most efficient single-key pattern'
-        },
-        'and': {
-            title: '⚙️ 2-of-2 AND Miniscript',
-            structure: 'and_v(v:pk(Alice),pk(Bob)) → Verify Alice, then check Bob',
-            bitcoinScript: 'Compiles to: <Alice> CHECKSIGVERIFY <Bob> CHECKSIG',
-            useCase: 'Both Alice and Bob must provide signatures. Common for joint accounts or business partnerships.',
-            technical: '💡 Uses VERIFY wrapper for efficient sequential checking'
-        },
-        'or': {
-            title: '⚙️ OR Keys Miniscript',
-            structure: 'or_b(pk(Alice),s:pk(Bob)) → Boolean OR with stack swap',
-            bitcoinScript: 'Compiles to: <Alice> CHECKSIG SWAP <Bob> CHECKSIG BOOLOR',
-            useCase: 'Either Alice or Bob can spend. Useful for backup access or shared control.',
-            technical: '💡 s: wrapper swaps stack elements for proper evaluation'
-        },
-        'complex': {
-            title: '⚙️ AND/OR: Why and_v + or_b + Wrappers',
-            structure: 'and_v(v:pk(Alice),or_b(pk(Bob),s:pk(Charlie))) → Alice AND (Bob OR Charlie)',
-            bitcoinScript: '<Alice> CHECKSIGVERIFY <Bob> CHECKSIG SWAP <Charlie> CHECKSIG BOOLOR',
-            useCase: 'Alice must always sign, plus either Bob or Charlie. Demonstrates wrapper logic: v: for VERIFY, s: for stack SWAP.',
-            technical: '💡 Why these choices? and_v = Alice must be verified first (fail fast). or_b = boolean OR needed for final result. v:pk(Alice) = convert signature to VERIFY (stack efficient). s:pk(Charlie) = SWAP for proper stack order in BOOLOR.'
-        },
-        'timelock': {
-            title: '⚙️ Timelock: Why Double and_v Structure',
-            structure: 'and_v(v:pk(Alice),and_v(v:older(144),pk(Bob))) → Alice AND (144 blocks AND Bob)',
-            bitcoinScript: '<Alice> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY <Bob> CHECKSIG',
-            useCase: 'Alice must sign, plus Bob can only sign after 144 blocks (~1 day). Why this structure? Prevents rushed joint decisions.',
-            technical: '💡 Double and_v structure: 1) Alice verified first (early failure if missing), 2) Timelock verified before Bob (no signature check if too early), 3) Bob\'s signature checked last. This ordering minimizes wasted computation when conditions aren\'t met.'
-        },
-        'xonly': {
-            title: '⚙️ Taproot X-only Key',
-            structure: 'pk(David) → X-only public key (64 chars)',
-            bitcoinScript: 'Compiles to Taproot-compatible script using 32-byte keys',
-            useCase: 'Demonstrates Taproot X-only public keys for improved efficiency and privacy.',
-            technical: '💡 Taproot uses Schnorr signatures with X-only keys'
-        },
-        'multisig': {
-            title: '⚙️ 1-of-3 Multisig Using or_d',
-            structure: 'or_d(pk(Alice),or_d(pk(Bob),pk(Charlie))) → Nested OR with DUP-IF pattern',
-            bitcoinScript: 'DUP IF <Alice> CHECKSIG ELSE DUP IF <Bob> CHECKSIG ELSE <Charlie> CHECKSIG ENDIF ENDIF',
-            useCase: 'Any of three parties can spend. Why or_d? Because we want the first successful signature to consume the condition, not evaluate all possibilities.',
-            technical: '💡 or_d chosen over or_i/or_b because: 1) More efficient for multiple options (early exit), 2) DUP-IF pattern is cheaper than boolean operations for N>2 cases, 3) Left branch "consumes" the condition when satisfied'
-        },
-        'recovery': {
-            title: '⚙️ Recovery Wallet Using or_d Logic',
-            structure: 'or_d(pk(Alice),and_v(v:pk(Bob),older(1008))) → Alice OR (Bob + 1008 blocks)',
-            bitcoinScript: 'DUP IF <Alice> CHECKSIG ELSE <Bob> CHECKSIGVERIFY 1008 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Alice has daily control, Bob can recover after ~1 week. Why or_d? Because Alice\'s signature should immediately satisfy the condition without evaluating Bob\'s timelock.',
-            technical: '💡 or_d logic: Alice\'s path "consumes" the script (early exit), Bob\'s path only evaluated if Alice fails. This prevents unnecessary timelock evaluation when Alice spends normally. and_v ensures Bob AND timelock both verified.'
-        },
-        'hash': {
-            title: '⚙️ Hash + Timelock: 2FA Pattern with or_d',
-            structure: 'and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(...),older(144))))',
-            bitcoinScript: '<Alice> CHECKSIGVERIFY DUP IF <Bob> CHECKSIG ELSE <hash> HASH160 EQUALVERIFY 144 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Alice must approve, then either Bob can spend immediately OR secret holder after delay. Why or_d? Bob\'s cooperation path should exit immediately without evaluating hash/timelock.',
-            technical: '💡 Two-factor auth pattern: or_d ensures happy case (Alice+Bob) never touches hash computation or timelock. Only when Bob fails to cooperate does script evaluate the secret hash and time constraint. hash160 = RIPEMD160(SHA256(preimage))'
-        },
-        'inheritance': {
-            title: '⚙️ Taproot Inheritance: Nested or_d for Estate Planning',
-            structure: 'and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))',
-            bitcoinScript: '<David> CHECKSIGVERIFY DUP IF <Helen> CHECKSIG ELSE <Ivan> CHECKSIGVERIFY 52560 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'David must approve all spending. Helen can inherit immediately, or Ivan after 1 year. Why this structure? David maintains control while alive, Helen gets priority as primary beneficiary.',
-            technical: '💡 Inheritance logic: and_v(v:pk(David),...) ensures David always required. or_d(pk(Helen),...) gives Helen immediate access without timelock evaluation. Ivan\'s path only evaluated if Helen unavailable. 52560 blocks ≈ 1 year provides sufficient time for Helen to claim.'
-        },
-        'delayed': {
-            title: '⚙️ Taproot Immediate OR Delayed: or_d for Cooling Period',
-            structure: 'or_d(pk(Julia),and_v(v:pk(Karl),older(144))) → Julia OR (Karl + delay)',
-            bitcoinScript: 'DUP IF <Julia> CHECKSIG ELSE <Karl> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Julia can spend immediately, Karl must wait 1 day. Why or_d? Julia\'s immediate access shouldn\'t evaluate Karl\'s timelock - pure efficiency.',
-            technical: '💡 Cooling period pattern: or_d ensures Julia\'s path is completely independent of timelock logic. When Julia spends, script never touches the 144-block delay or Karl\'s signature verification. Only when Julia doesn\'t spend does Karl\'s delayed path activate.'
-        },
-        'htlc_time': {
-            title: '⚙️ Time-based HTLC: or_d for Efficient Cooperation',
-            structure: 'and_v(v:pk(Alice),or_d(pk(Bob),and_v(v:hash160(...),older(144))))',
-            bitcoinScript: '<Alice> CHECKSIGVERIFY DUP IF <Bob> CHECKSIG ELSE <hash> HASH160 EQUALVERIFY 144 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Alice + Bob for normal cooperation, or Alice + hash secret after delay if Bob disappears. Why or_d? Bob\'s cooperation path should exit immediately without evaluating timelock.',
-            technical: '💡 HTLC efficiency: or_d means happy case (Alice+Bob) never touches the hash or timelock logic. Only when Bob fails to cooperate does the script evaluate the hash160 and older conditions. This saves gas/fees in the common cooperative case.'
-        },
-        'htlc_hash': {
-            title: '⚙️ Hash-based HTLC: or_d for Different Logic',
-            structure: 'or_d(pk(Alice),and_v(v:hash160(...),and_v(v:pk(Bob),older(144))))',
-            bitcoinScript: 'DUP IF <Alice> CHECKSIG ELSE <hash> HASH160 EQUALVERIFY <Bob> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Alice can claim immediately (refund), or Bob claims with hash preimage after delay. Why or_d? Alice\'s refund shouldn\'t require evaluating Bob\'s complex conditions.',
-            technical: '💡 Different HTLC pattern: Alice gets immediate refund path (common in failed payments), Bob must prove hash knowledge AND wait. or_d ensures Alice\'s refund is simple and efficient, while Bob\'s claim requires all three conditions (hash + signature + time).'
-        },
-        'full_descriptor': {
-            title: '⚙️ Full HD Wallet Descriptor with Origin Info',
-            structure: 'pk([fingerprint/derivation]xpub.../path/index) → Complete BIP32 descriptor',
-            bitcoinScript: 'Derives specific public key from xpub using BIP32 hierarchical deterministic derivation',
-            useCase: 'Production wallet descriptor with full metadata: master key fingerprint (C8FE8D4F), hardened derivation path (48h/1h/123h/2h), and specific address index (0/0). 💡 Use 🏷️ Hide key names to see the full raw descriptor.',
-            technical: '💡 Complete descriptor anatomy: [fingerprint/origin_path]xpub_key/final_path. Fingerprint identifies master key, origin shows derivation from master to xpub, final path derives specific key. Essential for wallet interoperability and backup recovery.'
-        },
-        'range_descriptor': {
-            title: '⚙️ Multipath Range Descriptor (BIP389)',
-            structure: 'pk([fingerprint/path]tpub.../<1;0>/*) → Multiple derivation paths in one descriptor',
-            bitcoinScript: 'Single descriptor template that expands to multiple derived public keys for different address types',
-            useCase: 'Advanced wallet pattern for generating both change (path 1) and receive (path 0) addresses from one descriptor. Why multipath? Eliminates need for separate descriptors. 💡 Use 🏷️ Hide key names to see the full raw descriptor with <1;0>/* syntax.',
-            technical: '💡 BIP389 multipath magic: <1;0>/* expands to TWO paths: .../1/* (change addresses) and .../0/* (receive addresses). Single descriptor = dual functionality. Reduces descriptor storage and simplifies wallet architecture. Testnet tpub ensures testnet address generation.'
-        },
-        'pkh': {
-            title: '⚙️ Pay-to-pubkey-hash',
-            structure: 'pkh(Alice) → Hash-based key reference',
-            bitcoinScript: 'Compiles to: DUP HASH160 <Alice_hash> EQUALVERIFY CHECKSIG',
-            useCase: 'Similar to P2PKH addresses. More private as public key is hidden until spending.',
-            technical: '💡 Classic Bitcoin pattern - reveals pubkey only when spending'
-        },
-        'wrap': {
-            title: '⚙️ Wrapped Key Fragment',
-            structure: 'c:pk_k(Alice) → Check-wrapper around key fragment',
-            bitcoinScript: 'Compiles with CHECKSIG wrapper for type correctness',
-            useCase: 'Demonstrates miniscript wrapper system for fragment composition.',
-            technical: '💡 c: wrapper converts signature to boolean, pk_k pushes key'
-        },
-        'or_i': {
-            title: '⚙️ OR with If-Else (or_i vs or_d vs or_b)',
-            structure: 'or_i(pk(Alice),pk(Bob)) → IF Alice ELSE Bob ENDIF',
-            bitcoinScript: 'IF <Alice> CHECKSIG ELSE <Bob> CHECKSIG ENDIF',
-            useCase: 'Either Alice or Bob can spend. Why or_i? When you want conditional execution where the spender chooses which branch to execute upfront.',
-            technical: '💡 or_i vs others: or_i = spender picks branch (IF/ELSE), or_d = left branch consumes (DUP-IF), or_b = evaluate both then OR (boolean logic). or_i most efficient for simple 2-way choices.'
-        },
-        'after': {
-            title: '⚙️ Absolute Timelock',
-            structure: 'and_v(v:pk(Alice),after(1767225600)) → Alice + absolute time',
-            bitcoinScript: 'Verifies Alice signature and checks absolute timestamp',
-            useCase: 'Alice can only spend after specific date (Jan 1, 2026). Useful for scheduled payments.',
-            technical: '💡 Uses CLTV (CheckLockTimeVerify) for absolute time constraints'
-        },
-        'vault_complex': {
-            title: '🏦 Enterprise Multi-Tier Vault System with Range Descriptors',
-            structure: 'Nested or_i structure: 5 spending paths from most secure (immediate) to most accessible (2-day delay)',
-            bitcoinScript: '🚨 Emergency: VaultKey14+VaultKey19 (immediate) → 📅 Tier 1: VaultKey12 OR 2-of-3 keys (after 2 hours) → 📅 Tier 2: VaultKey16 OR 2-of-3 keys (after 4 hours) → 📅 Tier 3: VaultKey6 OR 2-of-5 keys (after 1 day) → 📅 Final: VaultKey1 OR VaultKey4 (after 2 days)',
-            useCase: 'Advanced corporate treasury using range descriptors with graduated security model. Immediate access requires 2 executive keys (VaultKey14+VaultKey19). As time passes, recovery becomes easier but requires waiting longer. Each key uses range descriptors (/<10;11>/*) enabling multiple receive addresses while maintaining spending conditions. Perfect for balancing security vs. accessibility in enterprise custody with HD wallet support.',
-            technical: '💡 Why or_i for vault design: Each or_i branch represents a different security/time tradeoff. Spender chooses which path to execute - immediate high security or delayed lower security. The nested structure creates 5 distinct spending conditions with clear priority ordering. Range descriptors allow each spending path to support multiple addresses from the same keys, enabling better privacy and address management without changing the security model.'
-        },
-        'joint_custody': {
-            title: '🔐 3-Key Joint Custody: Negative Control System',
-            structure: 'andor(multi(2,jcKey1,jcKey2,jcKey3), or_i(...), and_v(...)) → 4-layer custody with Principal/Agent cooperation',
-            bitcoinScript: '🔒 Layer 1: 2-of-3 Principal multi (immediate) → 🕐 Layer 2: Single Agent + timelock (Jan 12, 2026) OR 2-of-3 Agent thresh + earlier timelock (Jan 1, 2026) → ⏰ Layer 3: 2-of-3 Recovery + later timelock (Feb 1, 2026)',
-            useCase: 'Sophisticated joint custody with "Negative Control" - funds cannot move without both Principal and Agent layers cooperating. Principal keys (jcKey1-3) provide 2-of-3 multisig control. Agent layer provides oversight with timelocked fallbacks. Recovery layer provides ultimate fallback after longer delays.',
-            technical: '💡 Why this structure: andor creates 3 distinct spending paths with different security models. First path (multi) requires 2-of-3 Principal signatures - most secure, immediate access. Second path (or_i) provides Agent oversight with time-based escalation. Third path (and_v) ensures recovery is possible but requires longest wait and 2-of-3 recovery keys. This prevents any single layer from unilaterally moving funds while providing multiple recovery mechanisms.<br><br>📋 Based on Blockstream MINT-005 Template<br><a href="https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md" target="_blank" style="color: var(--accent-color);">https://github.com/Blockstream/miniscript-templates/blob/main/mint-005.md</a>'
-        },
-        'liana_wallet': {
-            title: '🦎 Liana Wallet: Multi-Tier Recovery Vault',
-            structure: 'or_i(and_v(v:thresh(1,...),older(20)),or_i(and_v(v:pkh(...),older(19)),or_d(multi(2,...),and_v(v:pkh(...),older(18))))) → 4-path timelocked recovery system',
-            bitcoinScript: '🔒 Path 1: Any 1-of-3 Primary keys after 20 blocks → 🕐 Path 2: Recovery Key after 19 blocks → 💰 Path 3: 2-of-2 Backup multisig (immediate) → ⏰ Path 4: Final Recovery key after 18 blocks',
-            useCase: 'Professional Bitcoin custody solution with graduated recovery paths. Liana Wallet implements a sophisticated multi-tier system where different spending conditions become available over time. Primary keys provide flexible 1-of-3 access after short delay, recovery keys activate after medium delay, backup multisig works immediately, and final recovery ensures funds are never lost.',
-            technical: '💡 Why this Liana structure: Nested or_i creates 4 distinct spending paths with different security/time tradeoffs. thresh(1,...) allows any single primary key after 20-block cooling period (prevents rushed decisions). Recovery paths activate at different times (19, 18 blocks) providing multiple fallback options. or_d ensures backup multisig can be used immediately without evaluating complex recovery conditions. This design balances security (time delays) with usability (multiple recovery options) and prevents single points of failure.<br><br>📋 Based on Liana Wallet Documentation<br><a href="https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md" target="_blank" style="color: var(--accent-color);">https://github.com/wizardsardine/liana/blob/master/doc/USAGE.md</a>'
-        },
-        'taproot_multibranch': {
-            title: '🌳 Taproot Multi-Branch: or_d + Timelock Optimization',
-            structure: 'or_d(pk(Julia),and_v(v:pk(Karl),older(144))) → DUP-IF pattern with timelocked fallback',
-            bitcoinScript: 'Taproot Single-leaf: DUP IF <Julia> CHECKSIG ELSE <Karl> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF<br>Taproot Multi-leaf: Julia gets key-path OR script-leaf, Karl gets separate timelock script-leaf',
-            useCase: 'Perfect example of Taproot\'s smart optimization for OR conditions with different complexities. Julia (simple pk) vs Karl (complex pk + timelock). In single-leaf mode, creates traditional or_d logic. In multi-leaf mode, Taproot optimizes by giving Julia both key-path AND script-path options while Karl gets his own timelock script.',
-            technical: '💡 Why or_d + Taproot brilliance: or_d uses DUP-IF pattern perfect for unequal branch complexity. Julia\'s simple pk() is optimal for either key-path or script-leaf spending. Karl\'s complex and_v(v:pk,older(144)) requires script revelation anyway. Taproot multi-leaf mode creates: 1) Julia as internal key (key-path spending), 2) Julia pk() as script-leaf, 3) Karl\'s timelock script as separate leaf. Result: Julia gets 2 spending methods (most efficient key-path + backup script-path), Karl gets timelock protection. This demonstrates Taproot\'s ability to optimize mixed complexity conditions.'
-        }
-    };
-    
-    const desc = descriptions[exampleId];
-    if (desc) {
-        // Update the title
-        const titleElement = document.getElementById('miniscript-title');
-        if (titleElement) {
-            titleElement.textContent = desc.title;
-        }
-        
-        // Update the content in the collapsible area
-        const descContent = document.getElementById('miniscript-content');
-        if (descContent) {
-            descContent.innerHTML = `
-            <div style="margin-bottom: 10px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Structure:</strong>
-                <div style="margin-top: 4px; font-size: 12px; color: var(--secondary-text); line-height: 1.4; font-family: monospace; background: var(--hover-bg); padding: 6px; border-radius: 4px;">${desc.structure}</div>
-            </div>
-            <div style="margin-bottom: 10px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Bitcoin Script:</strong>
-                <div style="margin-top: 4px; font-size: 12px; color: var(--secondary-text); line-height: 1.4;">${desc.bitcoinScript}</div>
-            </div>
-            <div style="margin-bottom: 10px;">
-                <strong style="color: var(--text-color); font-size: 12px;">Use Case:</strong>
-                <div style="margin-top: 4px; font-size: 12px; color: var(--secondary-text); line-height: 1.4;">${desc.useCase}</div>
-            </div>
-            <div>
-                <strong style="color: var(--text-color); font-size: 12px;">Technical Notes:</strong>
-                <div style="margin-top: 4px; font-size: 12px; color: var(--secondary-text); line-height: 1.4;">${desc.technical}</div>
-            </div>
-        `;
-        }
-        panel.style.display = 'block';
-    }
-};
 
 // Global function to handle replace keys checkbox
 // Global function for miniscript toggle button
@@ -7462,15 +7282,6 @@ window.showPolicyDescription = function(exampleId) {
             security: '✅ **Security benefits:** 6-month delay prevents premature inheritance claims, 2-of-3 consensus prevents single beneficiary compromise, David maintains full control while active, Taproot privacy.',
             bestFor: '✅ **Best for:** Estate planning, retirement accounts, high-value long-term storage, family wealth transfer, business succession planning, anyone wanting crypto inheritance without trusted third parties'
         },
-        'delayed': {
-            title: '📄 Taproot 2-of-2 OR Delayed - Cooperative + Emergency',
-            conditions: '🔓 Julia + Karl: Immediate 2-of-2 spending (cooperative path)\n⏰ David: After 144 blocks (~1 day) single-party emergency',
-            useCase: '**Joint Account with Emergency Access:** Julia and Karl must both agree for immediate spending, but David can spend alone after 1 day. Perfect for joint accounts where cooperation is preferred but emergency access is needed.',
-            examples: '💡 **Real-world examples:** Couple\'s shared savings with emergency contact, business partnership with mediator access, joint investment account with trusted third party override',
-            efficiency: '⚡ **Efficiency:** Cooperative path requires both signatures (~137 bytes), David\'s emergency path includes timelock verification (~105 bytes).',
-            security: '✅ **Security benefits:** Cooperative path prevents single-party spending, 24-hour delay gives Julia/Karl time to respond to unauthorized David access, balanced control between cooperation and emergency needs.',
-            bestFor: '✅ **Best for:** Joint accounts with trusted mediator, cooperative funds with emergency provisions, business partnerships with dispute resolution, any scenario balancing cooperation with emergency access'
-        },
         'hodl': {
             title: '📄 HODL Wallet Policy - Long-term Savings with Family Backup',
             conditions: '🔓 Alice: Immediate spending (9x probability weight - optimized for daily use)\n⏰ Bob + Charlie + Eva + Frank: 3-of-4 after 1 year (family consensus for emergency)',
@@ -7497,6 +7308,33 @@ window.showPolicyDescription = function(exampleId) {
             efficiency: '⚡ **Efficiency:** David spends with just 64 bytes (signature only). Helen/Uma each need ~34 bytes script + 64 bytes signature = ~98 bytes. Key-path spending is the most efficient option in Taproot. Total possible: key-path (64B) vs script-path (~98B).',
             security: '✅ **Security benefits:** David\'s spending reveals no scripts or other participants. Helen/Uma spending only reveals their specific script, not David\'s key or the other person\'s script. Maximum privacy through selective revelation.',
             bestFor: '✅ **Best for:** Scenarios where one party (David) is primary/preferred and others are alternatives, inheritance with preferred heir + backups, business with primary signer + emergency alternatives, demonstrating Taproot\'s intelligent optimization over naive 3-leaf structures'
+        },
+        'lightning_channel': {
+            title: '📄 Lightning Channel Policy - Cooperative vs Dispute Resolution',
+            conditions: '🔓 David AND Helen: Cooperative channel close (immediate)\n🔓 DavidTimeout + 1 week: Unilateral close with timelock\n🔓 HelenTimeout + 1 week: Unilateral close with timelock',
+            useCase: '**Lightning Network Channels:** This represents a simplified Lightning Network payment channel structure. Both parties can cooperatively close the channel instantly (David AND Helen), or either party can force-close unilaterally after a 1-week dispute resolution period using their timeout keys (DavidTimeout, HelenTimeout). The timelock prevents immediate unilateral closes, giving the other party time to dispute fraud attempts.',
+            examples: '💡 **Real-world Lightning:** In actual Lightning channels, this pattern secures bidirectional payment channels. Cooperative closes use the main keys (David, Helen) and are instant and cheap. Unilateral closes use separate timeout keys (DavidTimeout, HelenTimeout) and trigger dispute windows where the other party can publish penalty transactions if fraud is detected. The 1008 block (~1 week) timelock is typical for Lightning dispute resolution.',
+            efficiency: '⚡ **Taproot Benefits:** When compiled for Taproot contexts, the cooperative path (David AND Helen) becomes key-path spending - just 64 bytes and maximum privacy. Dispute scenarios using timeout keys (DavidTimeout, HelenTimeout) go to script-path. **Try switching to "Taproot (Key + script path)" context to see this optimization - cooperative closes reveal nothing about the dispute mechanisms!**',
+            security: '✅ **Security model:** Cooperative case requires both main signatures (David + Helen - strongest security). Unilateral cases use separate timeout keys (DavidTimeout, HelenTimeout) with built-in delays for dispute resolution. The asymmetric timelock ensures both parties have equal dispute rights - neither can force-close without giving the other party response time.',
+            bestFor: '✅ **Best for:** Lightning Network implementations, payment channels, any scenario requiring cooperative-first design with dispute fallbacks, bidirectional payment protocols, demonstrating how Taproot optimizes the "happy path" while keeping complex dispute logic private'
+        },
+        'inheritance_vault': {
+            title: '📄 Inheritance Vault Policy - Long-term Family Wealth Transfer',
+            conditions: '🔓 David (Owner): Immediate access anytime\n🔓 2-of-3 Heirs: Access after 6 months (26,280 blocks)\n🔓 Heirs: Uma, VaultXOnly1, VaultXOnly2',
+            useCase: '**Family Inheritance Planning:** David maintains full control during his lifetime with immediate spending rights. If David becomes incapacitated or passes away, a 2-of-3 threshold of heirs (Uma, VaultXOnly1, VaultXOnly2) can access the funds after a substantial 6-month waiting period. All keys are X-only format for optimal Taproot usage.',
+            examples: '💡 **Estate Planning with X-only Keys:** The 6-month timelock serves multiple purposes: gives David time to recover lost keys, prevents immediate family disputes during emotional periods, allows legal processes to unfold, and ensures David can always override heir attempts during his lifetime. All heir keys (VaultXOnly1, VaultXOnly2) are X-only format, perfect for Taproot scripts.',
+            efficiency: '⚡ **Taproot Optimization:** Perfect use case for Taproot! David\'s normal spending (99.9% of transactions) uses key-path spending - just 64 bytes, maximum privacy, reveals nothing about heirs or inheritance structure. All keys are X-only format for optimal Taproot efficiency. **Switch to "Taproot (Key + script path)" to see how David\'s key becomes the internal key, with the complex inheritance logic hidden until needed.**',
+            security: '✅ **Long-term Security:** 26,280 blocks ≈ 26 weeks provides substantial buffer against attacks, accidents, or family conflicts. David cannot be locked out by heirs. Heirs cannot be disinherited by single key loss (2-of-3 redundancy with Uma, VaultXOnly1, VaultXOnly2). Time delay prevents emotional or fraudulent inheritance attempts.',
+            bestFor: '✅ **Best for:** Family wealth preservation with Taproot optimization, estate planning using X-only keys, long-term savings with inheritance provisions, business succession planning, any scenario where immediate control is desired but eventual family access is crucial, showcasing Taproot\'s privacy benefits with proper X-only key usage'
+        },
+        'atomic_swap': {
+            title: '📄 Atomic Swap Policy - Cross-Chain Trading with Hash Preimages',
+            conditions: '🔓 Alice: Must provide signature + wait for Bob or timeout\n🔓 Bob + Secret: Can spend by revealing SHA256 preimage\n🔓 Alice + Timeout: Can recover funds after 1 day if Bob doesn\'t claim',
+            useCase: '**Cross-Chain Atomic Swaps:** Alice wants to trade Bitcoin for another cryptocurrency with Bob. Alice locks Bitcoin requiring both her signature AND either: Bob provides the secret preimage (completing the swap), or Alice recovers after 1 day timeout. Bob creates a matching contract on the other chain with the same secret hash, enabling trustless cross-chain trading.',
+            examples: '💡 **Hash Time-Locked Contracts (HTLCs):** The SHA256 preimage acts as a cryptographic key that unlocks both sides of the trade. When Bob reveals the secret to claim Alice\'s Bitcoin, Alice can use that same secret to claim Bob\'s altcoins. If Bob doesn\'t participate, Alice gets her Bitcoin back after the timeout. No trusted third party needed!',
+            efficiency: '⚡ **Segwit Optimization:** This policy works best in Segwit contexts because the SHA256 preimage (32 bytes) goes in the witness data, benefiting from the witness discount. **Compile this in "Segwit v0 (p2WSH)" context for optimal efficiency - the hash preimage only costs 1 WU per byte instead of 4 WU in Legacy contexts.**',
+            security: '✅ **Trustless Security:** Alice cannot lose funds (timeout protection). Bob cannot claim without revealing the secret (which Alice can then use on other chains). The 144-block timeout (~1 day) provides sufficient window for Bob to act while preventing indefinite fund lockup. SHA256 ensures cryptographically secure secret revelation.',
+            bestFor: '✅ **Best for:** Cross-chain trading, atomic swaps between Bitcoin and altcoins, any protocol requiring cryptographic secret revelation, demonstrating hash-based contracts, trustless exchange mechanisms, showcasing Segwit witness discount benefits for preimage data'
         }
     };
     
@@ -7613,18 +7451,18 @@ window.showMiniscriptDescription = function(exampleId) {
             technical: '💡 Two-factor auth pattern: or_d ensures happy case (Alice+Bob) never touches hash computation or timelock. Only when Bob fails to cooperate does script evaluate the secret hash and time constraint. hash160 = RIPEMD160(SHA256(preimage))'
         },
         'inheritance': {
-            title: '⚙️ Taproot Inheritance: Nested or_d for Estate Planning',
+            title: '⚙️ Inheritance (Taproot): Nested or_d for Estate Planning',
             structure: 'and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))',
             bitcoinScript: '<David> CHECKSIGVERIFY DUP IF <Helen> CHECKSIG ELSE <Ivan> CHECKSIGVERIFY 52560 CHECKSEQUENCEVERIFY ENDIF',
             useCase: 'David must approve all spending. Helen can inherit immediately, or Ivan after 1 year. Why this structure? David maintains control while alive, Helen gets priority as primary beneficiary.',
             technical: '💡 Inheritance logic: and_v(v:pk(David),...) ensures David always required. or_d(pk(Helen),...) gives Helen immediate access without timelock evaluation. Ivan\'s path only evaluated if Helen unavailable. 52560 blocks ≈ 1 year provides sufficient time for Helen to claim.'
         },
-        'delayed': {
-            title: '⚙️ Taproot Immediate OR Delayed: or_d for Cooling Period',
-            structure: 'or_d(pk(Julia),and_v(v:pk(Karl),older(144))) → Julia OR (Karl + delay)',
-            bitcoinScript: 'DUP IF <Julia> CHECKSIG ELSE <Karl> CHECKSIGVERIFY 144 CHECKSEQUENCEVERIFY ENDIF',
-            useCase: 'Julia can spend immediately, Karl must wait 1 day. Why or_d? Julia\'s immediate access shouldn\'t evaluate Karl\'s timelock - pure efficiency.',
-            technical: '💡 Cooling period pattern: or_d ensures Julia\'s path is completely independent of timelock logic. When Julia spends, script never touches the 144-block delay or Karl\'s signature verification. Only when Julia doesn\'t spend does Karl\'s delayed path activate.'
+        'liquid_federation': {
+            title: '⚙️ Liquid Federation (Taproot): Real-world Byzantine Fault Tolerance',
+            structure: 'or_d(multi_a(5,Fed1,...,Fed7),and_v(v:multi_a(2,Emergency1,Emergency2,Emergency3),older(4032)))',
+            bitcoinScript: 'DUP IF <Fed1> CHECKSIG <Fed2> CHECKSIGADD ... <5> NUMEQUAL ELSE <Emergency1> CHECKSIG <Emergency2> CHECKSIGADD <Emergency3> CHECKSIGADD <2> NUMEQUAL VERIFY 4032 CHECKSEQUENCEVERIFY ENDIF',
+            useCase: 'Based on Blockstream Liquid federation. 5-of-7 functionaries control funds normally, but 2-of-3 emergency keys can recover after 28 days if federation fails. Why multi_a? Taproot-specific multisig using CHECKSIGADD for batch validation.',
+            technical: '💡 Real production pattern: or_d ensures federation path (5-of-7) tried first - optimal for normal operation. Emergency recovery (2-of-3) only after 4032 blocks (28 days) prevents premature activation. multi_a uses Taproot\'s CHECKSIGADD for efficient signature aggregation. Byzantine fault tolerant: survives 2 federation key losses.'
         },
         'htlc_time': {
             title: '⚙️ Time-based HTLC: or_d for Efficient Cooperation',
@@ -8614,10 +8452,6 @@ window.addEventListener('DOMContentLoaded', function() {
                 'miniscript-inheritance': () => {
                     if (window.showMiniscriptDescription) window.showMiniscriptDescription('inheritance');
                     if (window.loadExample) window.loadExample('and_v(v:pk(David),or_d(pk(Helen),and_v(v:pk(Ivan),older(52560))))', 'inheritance');
-                },
-                'miniscript-delayed': () => {
-                    if (window.showMiniscriptDescription) window.showMiniscriptDescription('delayed');
-                    if (window.loadExample) window.loadExample('or_d(pk(Julia),and_v(v:pk(Karl),older(144)))', 'delayed');
                 },
                 'miniscript-htlc_time': () => {
                     if (window.showMiniscriptDescription) window.showMiniscriptDescription('htlc_time');

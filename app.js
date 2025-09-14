@@ -167,7 +167,7 @@ class SPARouter {
                         <a href="/miniscript" class="tool-item">
                             <div class="tool-icon">🔨</div>
                             <div class="tool-details">
-                                <h3>Miniscript Compiler</h3>
+                                <h3>Miniscript Studio</h3>
                                 <p>Compile and analyze Bitcoin Miniscript policies</p>
                             </div>
                             <div class="tool-arrow">→</div>
