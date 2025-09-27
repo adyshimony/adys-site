@@ -19,7 +19,7 @@ With Miniscript, Bitcoin spending conditions are built in three layers:
 
 Experimenting with Miniscript can still be challenging, which is why I built Miniscript Studio: a complete online IDE for exploring policies, compiling them into scripts, and analyzing every detail. Miniscript Studio comes with detailed examples, range descriptors and Taproot support, key variables, better error messages and more.
 
-Studio uses [Rust Miniscript](https://github.com/rust-bitcoin/rust-miniscript) crate to compile expressions, and https://bitcoin.sipa.be/miniscript/ as source of truth reference. While these tools exist and are production-proven, Studio tries to make Miniscript more accessible and easy to learn, by providing full IDE features around the compiler.
+Studio uses the [Rust Miniscript](https://github.com/rust-bitcoin/rust-miniscript) crate to compile expressions, and https://bitcoin.sipa.be/miniscript/ as source of truth reference. While these tools exist and are production-proven, Studio tries to make Miniscript more accessible and easy to learn, by providing full IDE features around the compiler.
 
 ### Policy Editor
 
@@ -121,18 +121,16 @@ Script path will use NUMS to generate script only paths; Script + key path will 
 
 ### Additional Features
 
-Miniscript Studio also includes an integrated Policy and Miniscript references, based on sipa's Miniscript documentation, and settings to customize the workspace. Descriptions and tips can be hidden for a cleaner view, theme selection, auto compile. And of course, users can save work and load it any time. Sharing examples is easy, and also sharing new policies (as long as it uses default variables, or hex values). Also it's worth exploring tips and quick info section.
+Miniscript Studio also includes an integrated Policy and Miniscript references, based on sipa's Miniscript documentation, and settings to customize the workspace. Descriptions and tips can be hidden for a cleaner view, theme selection, auto compile. And of course, users can save and load their work at any time. Sharing examples is easy, including new policies (as long as they use default variables or hex values). It's also worth exploring the tips and quick info section.
 
 ### Closing Thoughts
 
-Miniscript is changing how we approach Bitcoin script development — from error-prone manual scripting to structured, verifiable
-spending conditions.
+Miniscript is changing how we approach Bitcoin script development — from error-prone manual scripting to structured, verifiable spending conditions.
 
 Miniscript Studio brings this technology to developers at all levels through visual analysis, better error messages, automatic key management, and full descriptor and Taproot support. Whether you're exploring your first multisig setup or designing complex vault architectures, the Studio provides the tools and immediate feedback needed to build with confidence.
 
-I hope this tool will help developers to explore the possibilities of Miniscript.
- 
-Feedback and contributions are always welcome as we continue to make Bitcoin development more accessible.
+I hope this tool helps developers explore the full potential of Miniscript.
 
+Feedback and contributions are always welcome as we continue to make Bitcoin development more accessible.
 
 👉 Start building: [https://adys.dev/miniscript](https://adys.dev/miniscript)
