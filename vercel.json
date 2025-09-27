@@ -17,6 +17,10 @@
     {
       "source": "/tools",
       "destination": "/tools/index.html"
+    },
+    {
+      "source": "/blog/(.*)",
+      "destination": "/blog/index.html"
     }
   ],
   "headers": [

@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blog - Adys</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="/styles.css">
     <script>
-        // Set theme immediately to prevent flash
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
     </script>
@@ -37,9 +36,24 @@
     </header>
 
     <main>
-        <section class="coming-soon">
+        <section class="tools-content">
             <div class="container">
-                <h1>Soon</h1>
+                <h1>Blog</h1>
+
+                <div class="tools-list">
+                    <article class="blog-post-item">
+                        <a href="/blog/miniscript-studio-intro">
+                            <div class="blog-post-image">
+                                <img src="/images/miniscript-studio-intro.png" alt="Miniscript Studio" />
+                            </div>
+                            <div class="blog-post-content">
+                                <h2>Miniscript Studio</h2>
+                                <time class="blog-post-date">January 2025</time>
+                                <p class="blog-post-excerpt">Bitcoin Script is powerful — it enables multisig, timelocks, vaults, hashlocks, and more.</p>
+                            </div>
+                        </a>
+                    </article>
+                </div>
             </div>
         </section>
     </main>
@@ -47,13 +61,13 @@
     <footer>
         <div class="container">
             <p>&copy; 2025 Adys.</p>
+            <a href="https://github.com/adyshimony">Github</a>
         </div>
     </footer>
+
     <script>
-        // Theme management
         function initTheme() {
             const savedTheme = localStorage.getItem('theme') || 'dark';
-            // Theme already set in head, just update icon
             updateThemeIcon(savedTheme);
         }
 
@@ -71,36 +85,13 @@
                 toggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
             }
         }
-        
-        function syncTheme() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            if (savedTheme !== currentTheme) {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-            }
-        }
 
-        // Initialize on load
-        document.addEventListener('DOMContentLoaded', initTheme);
-        
-        // Listen for theme changes from other pages (like miniscript)
-        window.addEventListener('storage', function(e) {
-            if (e.key === 'theme') {
-                syncTheme();
-            }
-        });
-        
-        // Also check for theme changes on page focus (when returning from another page)
-        window.addEventListener('focus', syncTheme);
-        
-        // Handle back/forward button navigation
-        window.addEventListener('pageshow', syncTheme);
-        
-        // Mobile menu toggle
         function toggleMenu() {
             const navMenu = document.getElementById('navMenu');
             navMenu.classList.toggle('active');
         }
+
+        document.addEventListener('DOMContentLoaded', initTheme);
     </script>
 </body>
 </html>
