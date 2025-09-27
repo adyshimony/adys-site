@@ -2,6 +2,10 @@
 
 echo "🚀 Starting deployment script..."
 
+# Build blog pages locally before deployment
+echo "📚 Building blog pages..."
+npm run build
+
 # Define source and destination directories
 SRC_DIR=~/Sources/miniscript-compiler
 DEST_DIR=~/Sources/adys-site
