@@ -24,10 +24,10 @@ cp -f "$SRC_DIR/miniscript/modules/"* "$DEST_DIR/miniscript/modules/"
 
 
 echo "📁 Copying miniscript_wasm_bg.wasm..."
-cp -f "$SRC_DIR/pkg/miniscript_wasm_bg.wasm" "$DEST_DIR/miniscript/pkg/miniscript_wasm_bg.wasm"
+cp -f "$SRC_DIR/miniscript/pkg/miniscript_wasm_bg.wasm" "$DEST_DIR/miniscript/pkg/miniscript_wasm_bg.wasm"
 
 echo "📁 Copying miniscript_wasm.js..."
-cp -f "$SRC_DIR/pkg/miniscript_wasm.js" "$DEST_DIR/miniscript/pkg/miniscript_wasm.js"
+cp -f "$SRC_DIR/miniscript/pkg/miniscript_wasm.js" "$DEST_DIR/miniscript/pkg/miniscript_wasm.js"
 
 # Deploy with Vercel
 echo "🚀 Deploying to Vercel..."
