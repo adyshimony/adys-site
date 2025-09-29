@@ -2092,7 +2092,10 @@
                         <strong style="color: var(--text-color); font-size: 16px;">🔗 Share your work:</strong>
                         <br>
                         <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                            Use the 🔗 button above any expression to generate a shareable URL that includes your policy/miniscript and all key variables. Perfect for collaboration or saving your work. Choose between URL encoding and compact JSON format in Settings below.
+                            Use the 🔗 button above any expression to generate a shareable URL. Three formats are available in Settings:<br>
+                            • <strong>URL encoded:</strong> Shortest URLs, expression only. Not all platforms show a valid link<br>
+                            • <strong>Base64:</strong> Compact encoding, expression only. Good for platforms like Twitter<br>
+                            • <strong>JSON with custom keys:</strong> Includes your custom variables for sharing complete policies
                         </p>
                     </div>
                     <div class="tip-item">
@@ -2166,12 +2169,16 @@
                             <strong style="color: var(--text-color); font-size: 16px;">🔗 Share format:</strong>
                             <br>
                             <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                                Choose how shared URLs are formatted. URL encoding preserves special characters in readable format and is better for simple expressions. JSON creates base64-encoded URLs that include all state.
+                                Choose how shared URLs are formatted:<br>
+                                • <strong>URL encoded:</strong> Shortest URLs, expression only without custom variables. Easy to read but not all platforms show a valid link.<br>
+                                • <strong>Base64:</strong> Compact base64 encoding of expression only, without custom variables. Good for platforms that don't handle the url encoding well (Twitter).<br>
+                                • <strong>JSON with custom keys:</strong> Base64-encoded JSON that includes your custom variables. Good for sharing new policies with new variables.<br>
                             </p>
                         </div>
                         <select id="share-format-setting" style="margin-left: 20px; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color); font-size: 13px;">
                             <option value="url" selected>URL encoded</option>
-                            <option value="json">JSON</option>
+                            <option value="json">JSON with custom keys</option>
+                            <option value="base64">Base64 (expression only)</option>
                         </select>
                     </div>
                     <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center;">

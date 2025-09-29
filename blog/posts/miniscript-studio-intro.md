@@ -127,7 +127,7 @@ Miniscript Studio also includes an integrated Policy and Miniscript references, 
 
 Miniscript is changing how we approach Bitcoin script development — from error-prone manual scripting to structured, verifiable spending conditions.
 
-Miniscript Studio brings this technology to developers at all levels through visual analysis, better error messages, automatic key management, and full descriptor and Taproot support. Whether you're exploring your first multisig setup or designing complex vault architectures, the Studio provides the tools and immediate feedback needed to build with confidence.
+Miniscript Studio aims to bring this technology to developers at all levels through visual analysis, better error messages, automatic key management, and full descriptor and Taproot support. Whether you're exploring your first multisig setup or designing complex vault architectures, the Studio provides the tools and information needed to build with confidence.
 
 I hope this tool helps developers explore the full potential of Miniscript.
 
