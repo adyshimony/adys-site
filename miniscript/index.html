@@ -886,6 +886,13 @@
         input:checked + .toggle-slider:before {
             transform: translateX(26px);
         }
+
+        /* Fix word-breaking in tip descriptions and settings descriptions */
+        .tip-item p, .setting-item p {
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            word-break: normal !important;
+        }
     </style>
 </head>
 <body>
@@ -2019,17 +2026,10 @@
                         </p>
                     </div>
                     <div class="tip-item">
-                        <strong style="color: var(--text-color); font-size: 16px;">🔑 Missing or corrupted key variables?</strong>
+                        <strong style="color: var(--text-color); font-size: 16px;">🔑 Key management & extraction:</strong>
                         <br>
                         <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                            If one of the examples fails to complie with "pubkey string should be 66 or 130 digits" (or similar), or 🏷️ show keys doesn't work properly, go to "Key variables" section and use "Clear all" then "Restore defaults" to reset Alice, Bob, Charlie, etc. You can delete only the problematic key and "Restore defaults". 
-                        </p>
-                    </div>
-                    <div class="tip-item">
-                        <strong style="color: var(--text-color); font-size: 16px;">🔑 Extract keys to variables:</strong>
-                        <br>
-                        <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
-                            Use the 🔑 button to automatically detect keys in your expression and convert them to reusable variables. Detects public keys, xpubs, tpubs, and x-only keys. For each key, choose the appropriate type (compressed, x-only, xpub, tpub). Suggests meaningful names (Alice, Bob, Charlie) and prevents duplicates.
+                            Use the 🔑 button to automatically detect keys in your expression and convert them to reusable variables. Works for hex values too. Also works from error messages - click "extract keys" from the error message itself to auto generate them. Detects public keys, xpubs, tpubs, and x-only keys. If an example fails to compile, go to "Key variables" section and use "Restore defaults" to reset Alice, Bob, Charlie, etc.
                         </p>
                     </div>
                     <div class="tip-item">
@@ -2103,6 +2103,27 @@
                         <br>
                         <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
                             When loading an example or a saved expression, it can be automatically compiled to show results immediately. This behavior can be toggled on/off in the Settings section below. When off, expressions load but wait for manual compilation.
+                        </p>
+                    </div>
+                    <div class="tip-item">
+                        <strong style="color: var(--text-color); font-size: 16px;">📊 Spending analysis:</strong>
+                        <br>
+                        <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
+                            View detailed cost analysis, satisfaction paths, and weight units for fee estimation in the compilation results.
+                        </p>
+                    </div>
+                    <div class="tip-item">
+                        <strong style="color: var(--text-color); font-size: 16px;">🏷️ HD wallet descriptors:</strong>
+                        <br>
+                        <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
+                            Full support for xpub/tpub with wildcards (/*). Index field appears automatically for derivation paths.
+                        </p>
+                    </div>
+                    <div class="tip-item">
+                        <strong style="color: var(--text-color); font-size: 16px;">🌳 Taproot branches:</strong>
+                        <br>
+                        <p style="margin: 4px 0 0 0; color: var(--text-color); font-size: 13px;">
+                            For Policies with Taproot OR conditions, use the branch selector to choose which path to compile and compare costs.
                         </p>
                     </div>
                 </div>
