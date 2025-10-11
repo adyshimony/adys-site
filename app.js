@@ -175,9 +175,65 @@ class SPARouter {
 
     getTalksContent() {
         return `
-            <section class="coming-soon">
+            <section class="tools-content">
                 <div class="container">
-                    <h1>Soon</h1>
+                    <h1>Talks</h1>
+
+                    <div class="tools-list">
+                        <a href="https://www.youtube.com/watch?v=hB6i2ONpxmI" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>BTC++ Privacy Edition: Miniscript</h3>
+                                <p></p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+
+                        <a href="https://www.youtube.com/watch?v=RDtP9lX2bWY" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>BTC Amsterdam: Unlocking The Magic Of Bitcoin Wallets</h3>
+                                <p></p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+
+                        <a href="https://www.youtube.com/watch?v=apOn4mo06VA" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>BTC Amsterdam: Bitcoin Self Custody - Challenges & Tradeoffs</h3>
+                                <p>Panel with Seed Signer and Kevin Loaec</p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+
+                        <a href="https://www.youtube.com/watch?v=QHV6_PHikZc" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>Bitcoin Embassy: Miniscript</h3>
+                                <p>Hebrew</p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+
+                        <a href="https://www.youtube.com/watch?v=yZ7l2l7ARGA" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>Bitcoin Embassy: Bitcoin Wallets</h3>
+                                <p>Hebrew</p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+
+                        <a href="https://www.youtube.com/watch?v=JQDD6VYMsqY" target="_blank" rel="noopener noreferrer" class="tool-item">
+                            <div class="tool-icon">🎤</div>
+                            <div class="tool-details">
+                                <h3>Toylab: Bitcoin Privacy</h3>
+                                <p>Hebrew</p>
+                            </div>
+                            <div class="tool-arrow">→</div>
+                        </a>
+                    </div>
                 </div>
             </section>
         `;
