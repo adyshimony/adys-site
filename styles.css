@@ -895,6 +895,11 @@ footer .container {
     padding: 0 20px;
 }
 
+footer .container > div {
+    display: flex;
+    gap: 1rem;
+}
+
 footer a {
     color: var(--text-secondary);
     text-decoration: none;

@@ -40,24 +40,25 @@
         <section class="blog-post">
             <div class="container">
                 <article class="markdown-content" style="max-width: 1200px;">
-                    <h1 style="text-align: center; font-size: 3rem; margin: 3rem 0 4rem 0;">🔨 Miniscript Studio</h1>
+                    <h1 style="text-align: center; font-size: 3rem; margin: 3rem 0 4rem 0;">🔨 Miniscript Studio Intro</h1>
 
 <h3>Miniscript</h3>
 <p>Bitcoin Script is powerful, enabling multisig, timelocks, vaults, hashlocks, and more. Yet writing raw Script is notoriously complex: it&#39;s stack-based, easy to get wrong, hard to compose and full of quirky rules.</p>
 <p>Miniscript to the rescue!
 It&#39;s a structured language that makes Bitcoin scripts safer, analyzable, and composable.</p>
-<p>Developed by Pieter Wuille, Andrew Poelstra, and Sanket Kanjalkar, Miniscript bridges the gap between high level spending policies and low level Bitcoin Script.</p>
+<p>Developed by Pieter Wuille, Andrew Poelstra, and Sanket Kanjalkar, Miniscript bridges the gap between high-level spending policies and low-level Bitcoin Script.</p>
 <p>With Miniscript, Bitcoin spending conditions are built in three layers:</p>
 <ul>
-<li>Policy Language: Designed for humans. Simple, declarative conditions.</li>
-<li>Miniscript: A structured and analyzable representation that ensures correctness and supports composition</li>
-<li>Bitcoin Script: The actual execution layer interpreted by Bitcoin nodes</li>
+<li>Policy Language: human-readable way to write spending conditions.</li>
+<li>Miniscript: a structured and analyzable representation that ensures correctness and supports composition</li>
+<li>Bitcoin Script: the actual script interpreted by Bitcoin nodes</li>
 </ul>
+<p>So the Policy compiles to Miniscript expression that compiles into a Bitcoin Script, represented by an address. Very simple! At the end, it&#39;s just an address to receive coins and lock them to the spending conditions. To move them later to another address, you need to satisfy the spending conditions you defined in the Policy.</p>
 <h3>Miniscript Studio</h3>
 <p>Experimenting with Miniscript can still be challenging, which is why I built Miniscript Studio: a complete online IDE for exploring policies, compiling them into scripts, and analyzing every detail. Miniscript Studio comes with detailed examples, range descriptors and Taproot support, key variables, better error messages and more.</p>
-<p>Studio uses the <a href="https://github.com/rust-bitcoin/rust-miniscript">Rust Miniscript</a> crate to compile expressions, and <a href="https://bitcoin.sipa.be/miniscript/">https://bitcoin.sipa.be/miniscript/</a> as source of truth reference. While these tools exist and are production-proven, Studio tries to make Miniscript more accessible and easy to learn, by providing full IDE features around the compiler.</p>
+<p>Studio uses the <a href="https://github.com/rust-bitcoin/rust-miniscript">Rust Miniscript</a> crate to compile expressions, and <a href="https://bitcoin.sipa.be/miniscript/">https://bitcoin.sipa.be/miniscript/</a> as source of truth reference. While these tools exist and are production proven, Studio tries to make Miniscript more accessible and easy to learn, by providing full IDE features around the compiler.</p>
 <h3>Policy Editor</h3>
-<p>The Policy Editor is the starting point for writing spending conditions in a high level, human readable format. You can load predefined examples, study their descriptions, and compile them into Miniscript and Bitcoin Script. Just choose an example, press compile, and scroll down for Miniscript details. Compile policy will always trigger Miniscript compile, unless it&#39;s a Taproot with more than one branch to select.
+<p>The Policy Editor is the starting point for writing spending conditions in a high-level, human-readable format. You can load predefined examples, study their descriptions, and compile them into Miniscript and Bitcoin Script. Just choose an example, press compile, and scroll down for Miniscript details. Compiling policy will always trigger Miniscript compilation, unless it&#39;s a Taproot with more than one branch to select.
 Read the example descriptions as they cover all technical aspects of the example. You can collapse descriptions to save space.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/policy.png" alt=""></p>
 <p>👉 <a href="https://adys.dev/miniscript#example=policy-or">Try policy-or in Studio</a></p>
@@ -68,54 +69,56 @@ Read the example descriptions as they cover all technical aspects of the example
 <p><img src="/blog/posts/miniscript-studio-intro-assets/miniscript.png" alt=""></p>
 <p>👉 <a href="https://adys.dev/miniscript#miniscript=and_v(v%3Apk(Alice)%2Colder(144))">Try and_v in Studio</a></p>
 <h3>Script Area</h3>
-<p>The Script Area displays the compiled result in multiple formats: hex, ASM, and as an address. You can toggle between mainnet and testnet, or switch between Legacy, SegWit, and Taproot contexts and compile again. Note that Taproot uses x-only keys, make sure to choose the right context to your keys.</p>
+<p>The Script Area displays the compiled result in multiple formats: hex, ASM, and as an address. You can toggle between mainnet and testnet, or switch between Legacy, SegWit, and Taproot contexts and compile again. Note that Taproot uses x-only keys, make sure to choose the right context for your keys.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/script.png" alt=""></p>
 <h3>Extract Keys</h3>
 <p>Miniscript requires real public keys, but users may not have them handy. The Extract Keys function automatically generates the missing keys.</p>
 <p>For example, writing &quot;or(pk(Nadav),pk(Aviv))&quot; without defining Nadav and Aviv may raise a compilation error, as the compiler doesn&#39;t recognize Nadav or Aviv variables.</p>
-<p>By clicking Extract Keys button, usable public keys are generated automatically so the expression compiles without errors. Same goes when using hex values in expressions - extract keys will create new keys var for the missing keys (only).</p>
+<p>By clicking the Extract Keys button, usable public keys are generated automatically so the expression compiles without errors. Same goes when using hex values in expressions - extract keys will create new keys var for the missing keys (only), so you can use the names in the expression, instead of hex values.</p>
 <p>You can also just choose &quot;Extract keys&quot; from the error message itself.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/keyextract.gif" alt=""></p>
 <h3>Key Variables Management</h3>
-<p>For more control, the Key Variables section allows you to manage key values manually. You can add, edit, or delete variables, and generate them from predefined pools. Keys are always stored locally.</p>
+<p>If you need even more control, the Key Variables section allows you to manage key values manually. You can add, edit, or delete variables, and generate them from predefined pools. Keys are always stored locally in the browser&#39;s local storage.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/keyvars.png" alt=""></p>
 <h3>Default Variables</h3>
 <p>Miniscript Studio comes with predefined example keys to help you get started immediately: Alice, Bob, Charlie, Dave, Eva etc. You can see the full list under the key variable section.</p>
-<p>These default variables let you experiment instantly. For example, you can immediately write and compile policies like:</p>
+<p>These default variables let you experiment instantly. For example, you can immediately use them in policies like this:</p>
 <ul>
-<li>or(pk(Alice),pk(Bob)) - Simple 1-of-2</li>
-<li>thresh(2,pk(Alice),pk(Bob),pk(Charlie)) - 2-of-3 multisig</li>
+<li>or(pk(Alice),pk(Bob))</li>
+<li>thresh(2,pk(Alice),pk(Bob),pk(Charlie))</li>
 </ul>
-<p>You can also override any default by defining your value to any key. You made a mess? No problem. Just hit &quot;restore defaults&quot; to regenerate all default keys.</p>
+<p>You can also override any default by defining your value to any key. You made a mess? Getting errors when trying to compile default examples? No problem. Just hit &quot;restore defaults&quot; to regenerate all default keys.</p>
 <h3>HD Wallet Descriptors</h3>
-<p>Miniscript Studio supports hierarchical deterministic (HD) wallet descriptors, including xpubs and tpubs. When range descriptors are used, the editor provides an index field for address derivation and supports multipath syntax for external/change branches. This way you can work with complex expressions with multiple descriptors without the hassle to edit the expression.</p>
+<p>Miniscript Studio supports hierarchical deterministic (HD) wallet descriptors, including xpubs and tpubs. When range descriptors are used, the editor provides an index field for address derivation and supports multipath syntax for external/change branches. This way you can work with complex expressions with multiple descriptors without the hassle of editing the expression.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/desc.png" alt=""></p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/index.gif" alt=""></p>
 <p>👉 <a href="https://adys.dev/miniscript#example=miniscript-range_descriptor">Try Range descriptor in Studio</a></p>
 <h3>Lift Functionality</h3>
-<p>The lift feature allows raw Bitcoin Script to be reversed into Miniscript and Policy form.</p>
-<p>For example, pasting the ASM “Alice OP_CHECKSIG OP_IFDUP OP_NOTIF Bob OP_CHECKSIGVERIFY 144 OP_CHECKSEQUENCEVERIFY OP_ENDIF” produces the Miniscript “or_d(pk(Alice),and_v(v:pk(Bob),older(144)))” and the higher-level policy “or(pk(Alice),and(pk(Bob),older(144)))”. This makes complex raw scripts far easier to understand.</p>
+<p>The lift feature allows raw Bitcoin Script to be reversed into Miniscript and Policy form. You can lift from Script to Miniscript, and from Miniscript to Policy! Lifting is fun.</p>
+<p>For example, pasting the ASM &quot;Alice OP_CHECKSIG OP_IFDUP OP_NOTIF Bob OP_CHECKSIGVERIFY 144 OP_CHECKSEQUENCEVERIFY OP_ENDIF&quot; produces the Miniscript &quot;or_d(pk(Alice),and_v(v:pk(Bob),older(144)))&quot; and the higher-level policy &quot;or(pk(Alice),and(pk(Bob),older(144)))&quot;. This makes complex raw scripts far easier to understand, especially with Policy representation.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/lift.gif" alt=""></p>
-<p>Keep in mind that not all scripts can be lifted.
-For example, scripts with public key hashes can&#39;t be lifted.</p>
+<p>Keep in mind that not all scripts can be lifted. For example, scripts with public key hashes can&#39;t be lifted. However, valid Miniscript expressions can, and sometimes it&#39;s much easier to read them in Policy format.</p>
+<p>👉 <a href="https://adys.dev/miniscript#example=miniscript-complex">Try to lift this Miniscript expression in Studio</a></p>
 <h3>Taproot Support</h3>
 <p>Taproot introduced new ways of structuring Bitcoin outputs, and Miniscript Studio provides full support for exploring them. You can load Taproot policy examples and compile them in single-leaf/key, script-path, or key+script path contexts.</p>
-<p>Compiling the policy &quot;or(pk(David),or(pk(Helen),pk(Uma)))&quot; shows how the same logic can be represented in different Taproot contexts, with branch expressions automatically loaded into the Miniscript editor for inspection. When there are more than one branch, Studio provides a UI to choose what Miniscript expression to load into the editor.</p>
+<p>Compiling the policy &quot;or(pk(David),or(pk(Helen),pk(Uma)))&quot; shows how the same logic can be represented in different Taproot contexts, with branch expressions automatically loaded into the Miniscript editor for inspection. When there are multiple branches, Studio provides a UI to choose what Miniscript expression to load into the editor.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/poltap.png" alt=""></p>
 <p>👉 <a href="https://adys.dev/miniscript#example=policy-multi_branch">Try Multi branch policy in Studio</a></p>
-<h3>Taproot Script Paths</h3>
-<p>When working with Taproot Miniscript expressions, the tool shows each available script path, the full descriptor, and a spending cost analysis.</p>
-<p>The miniscript expression “or_d(multi_a(5,Fed1,Fed2,Fed3,Fed4,Fed5,Fed6,Fed7),and_v(v:multi_a(2,Emergency1,Emergency2,Emergency3),older(4032)))” is displayed as two paths: multi_a(5,Fed1,Fed2,Fed3,Fed4,Fed5,Fed6,Fed7) and and_v(v:multi_a(2,Emergency1,Emergency2,Emergency3),older(4032)), with their descriptors and weight analysis provided side by side for comparison.
-Script path will use NUMS to generate script only paths; Script + key path will generate script paths and key paths spending; and Single leaf will create a Taproot leaf with the full script for complex scripts. For key only scripts, it will create a key-only spending path as it&#39;s the most efficient.</p>
+<h3>Taproot Miniscript</h3>
+<p>When working with Taproot Miniscript expressions, the expression will compile into one leaf script, in all contexts, but with some differences.
+Single leaf/Key context shows the leaf info ASM for simplicity, and if it&#39;s a key only, it will optimize to a key-only taproot. The other contexts show more leaf details and spend info. The script + key path context also provides key path spending info and compiles the internal key of the expression instead of NUMS.</p>
 <p><img src="/blog/posts/miniscript-studio-intro-assets/minitap.png" alt=""></p>
 <p>👉 <a href="https://adys.dev/miniscript#example=miniscript-liquid_federation">Try Liquid Federation in Studio</a></p>
+<h3>Debug</h3>
+<p>After a successful compilation, you can press the debug button 🐞 to see more information returned from the Miniscript Rust library compilation, including Miniscript types.</p>
+<p><img src="/blog/posts/miniscript-studio-intro-assets/debug.png" alt=""></p>
 <h3>Additional Features</h3>
-<p>Miniscript Studio also includes an integrated Policy and Miniscript references, based on sipa&#39;s Miniscript documentation, and settings to customize the workspace. Descriptions and tips can be hidden for a cleaner view, theme selection, auto compile. And of course, users can save and load their work at any time. Sharing examples is easy, including new policies (as long as they use default variables or hex values). It&#39;s also worth exploring the tips and quick info section.</p>
+<p>Miniscript Studio also includes Policy and Miniscript references, based on sipa&#39;s Miniscript documentation, and settings to customize the workspace. Descriptions and tips can be hidden for a cleaner view, you can choose your theme, activate auto compile and more. Users can save and load their work at any time and sharing examples is easy, including new policies (use JSON share format to include new variables). It&#39;s also worth exploring the tips and quick info section.</p>
 <h3>Closing Thoughts</h3>
-<p>Miniscript is changing how we approach Bitcoin script development — from error-prone manual scripting to structured, verifiable spending conditions.</p>
-<p>Miniscript Studio aims to bring this technology to developers at all levels through visual analysis, better error messages, automatic key management, and full descriptor and Taproot support. Whether you&#39;re exploring your first multisig setup or designing complex vault architectures, the Studio provides the tools and information needed to build with confidence.</p>
+<p>Miniscript is changing how we approach Bitcoin script development, from manual scripting to structured, verifiable spending conditions. Miniscript Studio aims to bring this technology to developers at all levels through visual analysis, better error messages, automatic key management, and full descriptor and Taproot support. But it&#39;s not only for experienced developers, it can help beginners understand Bitcoin spending conditions more easily, using Policy language. Whether you&#39;re exploring your first multisig setup or designing complex vault architectures, the Studio provides the tools and information needed to build with confidence. 
+Studio contains all the features I ever wanted in my Miniscript journey.</p>
 <p>I hope this tool helps developers explore the full potential of Miniscript.</p>
-<p>Feedback and contributions are always welcome as we continue to make Bitcoin development more accessible.</p>
+<p>Feedback and contributions are always welcome.</p>
 <p>👉 Start building: <a href="https://adys.dev/miniscript">https://adys.dev/miniscript</a></p>
 
                 </article>

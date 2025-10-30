@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Post - Adys</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/styles.css">
+    <script>
+        // Set theme immediately to prevent flash
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="nav-container">
+                <div class="logo">
+                    <a href="/">ADYS</a>
+                </div>
+                <div class="hamburger" onclick="toggleMenu()">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/about">About</a></li>
+                    <li><a href="/blog" class="active">Blog</a></li>
+                    <li><a href="/talks">Talks</a></li>
+                    <li><a href="/tools">Tools</a></li>
+                </ul>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="blog-post">
+            <div class="container">
+                <article class="markdown-content" style="max-width: 1200px;">
+                    <h1 style="text-align: center; font-size: 3rem; margin: 3rem 0 4rem 0;">Miniscript - Policy Language</h1>
+
+<h3>Introduction</h3>
+<p>Miniscript and surly Script are for devlopers, thats true.
+I think Policy should not be. I think its important for users to understand Policy language as its teaches them a lot about Bitcoin and specially on spending conditions. By learning the possiblities, a user can choose the better custody solusion, avoid risks and more. Time lock? that scary. But after(144)? That more understanable, that is human readable.</p>
+<p>Every Bitcoin output has spending conditions - rules that determine who can spend the funds and when. Traditionally, creating these rules meant writing complex scripts that&#39;s difficult to understand and easy to get wrong.</p>
+<p>Miniscript and specially <strong>Policy Language</strong> changes this completely. It lets you write spending conditions in plain, human readable statements. More than that, it help you learn what are the availble spending conditions in Bitcoin.</p>
+<p>Now its true that if you are not a tech person that write a wallet or learning Miniscript, you most likely will ever write a policy.
+But its really woth knowing how to read them and more important, knowing the existing posibilities in Bitcoin. Did you know for example that you can delay the sepnding of a coin? prepare a backup key? create a multisig wallet? </p>
+<p>In this post we will keep things simple, so we will not get into Miniscript and Script, only how Policy works.</p>
+<h3>What is Policy Language?</h3>
+<p>Policy Language is a simple way to express Bitcoin spending conditions. Think of it as writing the rules for your Bitcoin in simple words that anyone can read and understand. That what we called, human readable format.</p>
+<p>A basic policy:</p>
+<pre><code>or(pk(Alice),pk(Bob))
+</code></pre>
+<p>This reads very simple: &quot;Either Alice can sign, OR Bob can sign.&quot;</p>
+<p>A reminder - this expression compiles to a Miniscript and then to a script that represented by an address. When someone sends Bitcoin to this address, they&#39;re locking it according to the spending conditions of the policy that created the address. 
+To move thoes funds later, you need to satisfy the conditions. </p>
+<h3>Policy Language Primitives</h3>
+<p>Let&#39;s explore all the building blocks you can use to create policies expressions.</p>
+<h4>pk(KEY)</h4>
+<p>Requires a digital signature from the specified public key. The simplest spending condition - only the holder of the corresponding private key can create a valid signature to spend the funds.</p>
+<pre><code>pk(Alice)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Alice</strong>: Immediate spending (no restrictions)</li>
+</ul>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Single point of failure</strong>: If Alice loses her key, funds are permanently lost</li>
+<li><strong>Most efficient</strong>: Direct compilation to <code>OP_CHECKSIG</code>, minimal overhead</li>
+<li><strong>No backup</strong>: No recovery mechanism if key is compromised or lost</li>
+</ul>
+<p><strong>Use case</strong>: Personal hot wallet, simple ownership, individual daily-use wallet, situations where efficiency matters more than redundancy</p>
+<h2>or(POLICY1,POLICY2)</h2>
+<p>Either policy can be satisfied - at least one must be true. Provides flexibility by allowing multiple spending paths.</p>
+<p><strong>Example - Backup key</strong>:</p>
+<pre><code>or(pk(Alice),pk(Bob))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Alice</strong>: Can spend anytime</li>
+<li><strong>Bob</strong>: Can spend anytime</li>
+</ul>
+<p>Either Alice OR Bob can spend (1-of-2).</p>
+<p><strong>Example - Recovery with timelock</strong>:</p>
+<pre><code>or(pk(Owner),and(pk(Recovery),older(4320)))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Owner</strong>: Immediate spending (no restrictions)</li>
+<li><strong>Recovery</strong>: Can spend after 30 days (~4320 blocks)</li>
+</ul>
+<p>Owner can spend anytime, OR recovery key after waiting period.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Redundancy</strong>: Multiple spending paths prevent lockout</li>
+<li><strong>Weakest link</strong>: Security is only as strong as the easiest-to-compromise path</li>
+<li><strong>Flexible recovery</strong>: Time-delayed paths provide safety against key compromise</li>
+</ul>
+<p><strong>Use case</strong>: Wallet recovery, inheritance planning, backup spending paths, emergency access</p>
+<h2>and(POLICY1,POLICY2)</h2>
+<p>Both policies must be satisfied. Requires meeting all conditions simultaneously - useful for combining signatures with time delays or multiple authorizations.</p>
+<p><strong>Example - 2-of-2 multisig</strong>:</p>
+<pre><code>and(pk(Alice),pk(Bob))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Both required</strong>: Alice AND Bob must both sign</li>
+</ul>
+<p>Both parties must approve every transaction.</p>
+<p><strong>Example - Delayed spending</strong>:</p>
+<pre><code>and(pk(Alice),older(144))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Alice&#39;s signature required</strong></li>
+<li><strong>Must wait</strong>: 144 blocks (~1 day) after UTXO confirmation</li>
+</ul>
+<p>Alice can spend, but only after waiting period.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Stronger security</strong>: Requires multiple conditions, harder to compromise</li>
+<li><strong>Higher risk of lockout</strong>: All conditions must be met - losing any means losing funds</li>
+<li><strong>Time delays</strong>: Protect against impulsive or compromised transactions</li>
+<li><strong>Coordination required</strong>: All parties must be available and cooperate</li>
+</ul>
+<p><strong>Use case</strong>: Joint accounts, time-delayed spending, collaborative custody, theft protection with delays</p>
+<h2>thresh(K,POLICY1,POLICY2,...,POLICYN)</h2>
+<p>At least K out of N policies must be satisfied (K-of-N threshold). The most flexible way to require multiple approvals while tolerating some key loss.</p>
+<p><strong>Example - 2-of-3 multisig</strong>:</p>
+<pre><code>thresh(2,pk(Alice),pk(Bob),pk(Charlie))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Any 2 of 3</strong>: Alice + Bob, Alice + Charlie, or Bob + Charlie</li>
+</ul>
+<p>Any 2 out of 3 must sign.</p>
+<p><strong>Example - 3-of-5 multisig</strong>:</p>
+<pre><code>thresh(3,pk(Key1),pk(Key2),pk(Key3),pk(Key4),pk(Key5))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Any 3 of 5</strong>: Any combination of 3 signatures</li>
+</ul>
+<p>Any 3 out of 5 must sign.</p>
+<p><strong>Example - Mixed conditions</strong>:</p>
+<pre><code>thresh(2,pk(Alice),pk(Bob),older(144))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Option 1</strong>: Alice + Bob (immediate)</li>
+<li><strong>Option 2</strong>: Alice + wait 144 blocks</li>
+<li><strong>Option 3</strong>: Bob + wait 144 blocks</li>
+</ul>
+<p>Two conditions must be met from: Alice signs, Bob signs, or 144 blocks passed.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Balanced security</strong>: Tolerates up to N-K key losses without fund loss</li>
+<li><strong>Flexible</strong>: Can mix keys with other conditions (time delays, hashes)</li>
+<li><strong>Coordination complexity</strong>: More signers = harder to coordinate</li>
+<li><strong>Industry standard</strong>: Most common setup for serious Bitcoin custody</li>
+</ul>
+<p><strong>Use case</strong>: Multisig wallets, corporate treasuries, distributed key management, family shared custody</p>
+<h2>after(LOCKTIME)</h2>
+<p>Requires waiting until an absolute block height or Unix timestamp. Funds cannot be spent before a specific date or block number.</p>
+<p><strong>Example - Block height</strong>:</p>
+<pre><code>after(750000)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Locked until block 750000</strong>: Cannot spend before this block is mined</li>
+</ul>
+<p>Can be spent only after block 750000.</p>
+<p><strong>Example - Unix timestamp</strong>:</p>
+<pre><code>after(1735689600)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Locked until January 1, 2025</strong>: Cannot spend before this date</li>
+</ul>
+<p>Can be spent only after specific date.</p>
+<p><strong>Example - Inheritance with deadline</strong>:</p>
+<pre><code>or(pk(Owner),and(pk(Heir),after(800000)))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Owner</strong>: Can spend anytime (no restrictions)</li>
+<li><strong>Heir</strong>: Can spend only after block 800000</li>
+</ul>
+<p>Owner controls now, heir can spend after deadline passes.</p>
+<p><strong>Important</strong>: Values below 500000000 are block heights; 500000000 and above are Unix timestamps.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Predictable timeline</strong>: Know exactly when funds become available</li>
+<li><strong>Irreversible</strong>: Cannot access funds before the deadline, even in emergencies</li>
+<li><strong>Inheritance planning</strong>: Perfect for passing funds to heirs at specific time</li>
+<li><strong>Network dependent</strong>: Block height deadlines depend on mining rate (~10 min/block)</li>
+</ul>
+<p><strong>Use case</strong>: Time-locked savings, inheritance with specific dates, scheduled payments, trustless escrow</p>
+<h2>older(BLOCKS)</h2>
+<p>Requires waiting a relative number of blocks after the UTXO is confirmed. The countdown starts when the transaction is included in a block.</p>
+<p><strong>Example</strong>:</p>
+<pre><code>older(144)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Wait 144 blocks</strong>: Must wait ~1 day after UTXO confirmation</li>
+</ul>
+<p>Can be spent 144 blocks (~1 day) after UTXO confirmation.</p>
+<p><strong>Example - Vault with delay</strong>:</p>
+<pre><code>or(thresh(2,pk(Cold1),pk(Cold2)),and(pk(Hot),older(144)))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Cold keys (immediate)</strong>: Cold1 + Cold2 can spend right away</li>
+<li><strong>Hot key (delayed)</strong>: Hot wallet must wait 144 blocks (~1 day)</li>
+</ul>
+<p>2 cold keys for immediate spend, OR hot key after 1-day delay.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Theft protection</strong>: Gives time to notice and react to unauthorized transactions</li>
+<li><strong>Relative timing</strong>: Countdown starts from confirmation, not a fixed date</li>
+<li><strong>Vault security</strong>: Hot wallet compromise doesn&#39;t mean instant loss</li>
+<li><strong>Usability tradeoff</strong>: Delays reduce convenience for legitimate use</li>
+</ul>
+<p><strong>Use case</strong>: Vault systems, payment channels, theft protection with delays, exchange hot wallets</p>
+<h2>Probability-Weighted OR</h2>
+<p>Optimize OR branches based on expected usage patterns. Tell the compiler which spending path you&#39;ll use more often, and it will make that path slightly cheaper.</p>
+<p><strong>Syntax</strong>:</p>
+<pre><code>or(K@POLICY1,N@POLICY2)
+</code></pre>
+<p>The ratio K:N tells the compiler which path will be used more often, allowing it to optimize for cheaper spending on the common path.</p>
+<p><strong>Example - 90% main, 10% backup</strong>:</p>
+<pre><code>or(9@pk(Alice),1@pk(Bob))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Alice (90% - optimized)</strong>: Slightly cheaper to spend</li>
+<li><strong>Bob (10% - backup)</strong>: Slightly more expensive to spend</li>
+</ul>
+<p>Optimizes for Alice being used 90% of the time.</p>
+<p><strong>Example - Rare recovery path</strong>:</p>
+<pre><code>or(99@pk(Owner),1@and(pk(Recovery),older(26280)))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Owner (99% - optimized)</strong>: Cheaper daily use</li>
+<li><strong>Recovery (1% - emergency)</strong>: More expensive, only if needed after ~6 months</li>
+</ul>
+<p>Optimizes for normal operation, making emergency recovery slightly more expensive.</p>
+<p><strong>When to use</strong>: When you know which spending path will be more common and want to minimize average transaction costs.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Cost optimization</strong>: Saves fees on commonly-used paths</li>
+<li><strong>Guess wrong</strong>: If you misjudge probabilities, you&#39;ll pay more fees</li>
+<li><strong>Same security</strong>: Optimization doesn&#39;t affect security, only costs</li>
+<li><strong>Optional feature</strong>: If unsure, use regular <code>or()</code> without weights</li>
+</ul>
+<p><strong>Use case</strong>: Hot/cold wallet optimization, rarely-used recovery paths, known usage patterns</p>
+<h2>Hash-Based Policies</h2>
+<p>Hash-based policies require revealing a secret (preimage) that produces a specific hash value. Essential for conditional payments and atomic swaps where someone must prove they know a secret.</p>
+<h3>sha256(HASH)</h3>
+<p>Requires revealing secret data that hashes to the specified SHA256 hash. The hash is public, but only someone with the secret preimage can spend.</p>
+<p><strong>Example</strong>:</p>
+<pre><code>sha256(b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Must provide secret</strong>: The preimage that hashes to this value</li>
+</ul>
+<p>Spending requires providing the secret that produces this hash.</p>
+<p><strong>Example - HTLC (Hash Time Locked Contract)</strong>:</p>
+<pre><code>or(and(pk(Alice),sha256(H)),and(pk(Bob),older(144)))
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Alice with secret</strong>: Can claim immediately if she knows the preimage</li>
+<li><strong>Bob after timeout</strong>: Can reclaim after 144 blocks if Alice doesn&#39;t claim</li>
+</ul>
+<p>Alice can claim with hash preimage, OR Bob reclaims after timeout.</p>
+<p><strong>Security considerations</strong>:</p>
+<ul>
+<li><strong>Conditional payment</strong>: Payment only releases when secret is revealed</li>
+<li><strong>Atomic swaps</strong>: Same secret can unlock multiple chains simultaneously</li>
+<li><strong>Secret must stay secret</strong>: Once revealed on-chain, anyone can see it</li>
+<li><strong>No counterparty trust</strong>: Cryptography enforces the contract</li>
+</ul>
+<p><strong>Use case</strong>: HTLCs, Lightning Network, atomic swaps, conditional payments, cross-chain trades</p>
+<h3>hash256(HASH)</h3>
+<p>Requires revealing data that double-hashes (SHA256 twice) to the specified hash. Uses Bitcoin&#39;s double-SHA256 standard.</p>
+<p><strong>Example</strong>:</p>
+<pre><code>hash256(5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Must provide secret</strong>: The preimage that double-hashes to this value</li>
+</ul>
+<p>Uses Bitcoin&#39;s double-SHA256 (like block hashes).</p>
+<p><strong>Use case</strong>: Similar to sha256 but follows Bitcoin&#39;s double-hash convention</p>
+<h3>ripemd160(HASH)</h3>
+<p>Requires revealing data that hashes to the specified RIPEMD160 hash.</p>
+<p><strong>Example</strong>:</p>
+<pre><code>ripemd160(3b4f645b5e1e0e8d7e4b5f645b5e1e0e8d7e4b5f)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Must provide secret</strong>: The preimage that hashes to this RIPEMD160 value</li>
+</ul>
+<p><strong>Use case</strong>: Legacy compatibility, specific hash schemes</p>
+<h3>hash160(HASH)</h3>
+<p>Requires revealing data that hashes to the specified HASH160 (SHA256 followed by RIPEMD160). This is Bitcoin&#39;s standard address hashing method.</p>
+<p><strong>Example</strong>:</p>
+<pre><code>hash160(3b4f645b5e1e0e8d7e4b5f645b5e1e0e8d7e4b5f)
+</code></pre>
+<p><strong>Spending Conditions</strong>:</p>
+<ul>
+<li><strong>Must provide secret</strong>: The preimage that hashes to this HASH160 value</li>
+</ul>
+<p>Uses Bitcoin&#39;s standard address hashing (SHA256 → RIPEMD160).</p>
+<p><strong>Use case</strong>: Compatible with Bitcoin&#39;s address hash standard</p>
+<h2>Practical Real-World Examples</h2>
+<p>Here&#39;s how to combine primitives to build real custody solutions.</p>
+<h3>Example 1: Simple 2-of-3 Multisig</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>thresh(2,pk(Alice),pk(Bob),pk(Charlie))
+</code></pre>
+<p><strong>Description</strong>: Any 2 out of 3 signatures required.</p>
+<p><strong>Use case</strong>: Personal multisig wallet, small company treasury</p>
+<h3>Example 2: Time-Locked Vault</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(thresh(2,pk(ColdKey1),pk(ColdKey2)),
+   and(pk(HotKey),older(144)))
+</code></pre>
+<p><strong>Description</strong>: 2 cold keys for immediate access, OR hot key after 1-day delay.</p>
+<p><strong>Use case</strong>: Exchange security - protects against hot wallet compromise with delay</p>
+<h3>Example 3: Inheritance Setup</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(pk(Owner),
+   and(thresh(2,pk(Heir1),pk(Heir2),pk(Heir3)),
+       after(800000)))
+</code></pre>
+<p><strong>Description</strong>: Owner spends anytime, OR 2-of-3 heirs after block 800000.</p>
+<p><strong>Use case</strong>: Bitcoin inheritance with absolute deadline</p>
+<h3>Example 4: Lightning-Style HTLC</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(and(pk(Alice),sha256(b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c)),
+   and(pk(Bob),older(144)))
+</code></pre>
+<p><strong>Description</strong>: Alice claims with hash preimage, OR Bob reclaims after timeout.</p>
+<p><strong>Use case</strong>: Payment channels, atomic swaps, conditional payments</p>
+<h3>Example 5: Social Recovery Wallet</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(pk(Owner),
+   thresh(3,pk(Guardian1),pk(Guardian2),pk(Guardian3),pk(Guardian4),pk(Guardian5)))
+</code></pre>
+<p><strong>Description</strong>: Owner controls normally, OR 3-of-5 guardians recover.</p>
+<p><strong>Use case</strong>: Self-custody with social backup</p>
+<h3>Example 6: Corporate Treasury</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>thresh(2,
+    pk(CEO),
+    pk(CFO),
+    pk(CTO),
+    and(pk(AuditKey),older(4320)))
+</code></pre>
+<p><strong>Description</strong>: Any 2 executives immediately, but audit key requires 30-day delay.</p>
+<p><strong>Use case</strong>: Corporate governance with compliance oversight</p>
+<h3>Example 7: Degrading Multisig</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(thresh(3,pk(Key1),pk(Key2),pk(Key3),pk(Key4),pk(Key5)),
+   and(thresh(2,pk(Key1),pk(Key2),pk(Key3),pk(Key4),pk(Key5)),older(1000)),
+   and(pk(RecoveryKey),older(10000)))
+</code></pre>
+<p><strong>Description</strong>: Starts as 3-of-5, degrades to 2-of-5 after ~1 week, then single recovery key after ~10 weeks.</p>
+<p><strong>Use case</strong>: Balancing security with key loss resilience over time</p>
+<h3>Example 8: Payment Channel</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(and(pk(Alice),pk(Bob)),
+   and(pk(Alice),older(1008)))
+</code></pre>
+<p><strong>Description</strong>: Both parties cooperate to close, OR Alice refunds after ~1 week.</p>
+<p><strong>Use case</strong>: Unilateral channel closing</p>
+<h3>Example 9: Atomic Swap</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(and(pk(Alice),sha256(H)),
+   and(pk(Bob),after(1735689600)))
+</code></pre>
+<p><strong>Description</strong>: Alice claims with preimage, OR Bob reclaims after deadline.</p>
+<p><strong>Use case</strong>: Cross-chain atomic swaps with absolute timeout</p>
+<h3>Example 10: Emergency Recovery Vault</h3>
+<p><strong>Policy</strong>:</p>
+<pre><code>or(9@thresh(2,pk(Key1),pk(Key2),pk(Key3)),
+   1@and(pk(EmergencyKey),older(26280)))
+</code></pre>
+<p><strong>Description</strong>: Normal 2-of-3 (optimized), emergency key after ~6 months (if needed).</p>
+<p><strong>Use case</strong>: Long-term cold storage with emergency escape hatch</p>
+<h2>Policy Tips and Best Practices</h2>
+<h3>1. Start Simple</h3>
+<p>Begin with <code>pk</code>, <code>or</code>, <code>and</code> before adding complexity. Build incrementally.</p>
+<h3>2. Use Descriptive Names</h3>
+<ul>
+<li>Good: <code>pk(Owner)</code>, <code>pk(BackupKey)</code></li>
+<li>Bad: <code>pk(Key1)</code>, <code>pk(Key2)</code></li>
+</ul>
+<h3>3. Always Include Recovery Paths</h3>
+<p>Never create single-point-of-failure policies. Examples:</p>
+<ul>
+<li>Social recovery with guardians</li>
+<li>Time-delayed backup keys</li>
+<li>Degrading thresholds</li>
+</ul>
+<h3>4. Understand Time Units</h3>
+<ul>
+<li><code>after()</code> and <code>older()</code> values &lt; 500000000 = blocks</li>
+<li>Values ≥ 500000000 = Unix timestamps</li>
+<li>Don&#39;t mix them incorrectly!</li>
+</ul>
+<h3>5. Consider Spending Costs</h3>
+<p>More complex = higher fees. Balance security with efficiency:</p>
+<ul>
+<li>Simple <code>pk()</code>: ~67 vbytes</li>
+<li>2-of-3 <code>thresh()</code>: ~140 vbytes</li>
+<li>Complex vaults: 200+ vbytes</li>
+</ul>
+<h3>6. Test Before Deploying</h3>
+<p>Use <a href="https://adys.dev/miniscript">Miniscript Studio</a> to:</p>
+<ul>
+<li>Validate syntax</li>
+<li>Compile to Miniscript and Script</li>
+<li>Analyze spending costs</li>
+<li>Generate testnet addresses</li>
+</ul>
+<h3>7. Document Your Policies</h3>
+<p>Record:</p>
+<ul>
+<li>What the policy does</li>
+<li>Why you chose this structure</li>
+<li>Who holds which keys</li>
+<li>Recovery procedures</li>
+</ul>
+<h3>8. Use Probability Weights Wisely</h3>
+<p>Only use weighted <code>or()</code> when you genuinely know usage patterns. Otherwise let the compiler optimize.</p>
+<h3>9. Plan for Key Loss</h3>
+<p>Assume keys will be lost. Design accordingly:</p>
+<ul>
+<li>Multiple recovery paths</li>
+<li>Time-delayed alternatives</li>
+<li>Degrading security thresholds</li>
+</ul>
+<h3>10. Know Your Limits</h3>
+<p>Some policies can&#39;t be compiled:</p>
+<ul>
+<li>Policies exceeding script size limits</li>
+<li>Unsatisfiable combinations</li>
+<li>Circular dependencies</li>
+</ul>
+<h2>Additional Primitive: pkh(KEY)</h2>
+<h3>pkh(KEY)</h3>
+<p><strong>Description</strong>: Requires a signature from the key whose public key hash matches.</p>
+<p><strong>Syntax</strong>:</p>
+<pre><code>pkh(KEY)
+</code></pre>
+<p><strong>Example</strong>:</p>
+<pre><code>pkh(Bob)
+</code></pre>
+<p>Uses the OP_DUP OP_HASH160 pattern (like traditional P2PKH addresses).</p>
+<p><strong>Note</strong>: Less common in modern Miniscript - <code>pk()</code> is more efficient in SegWit/Taproot.</p>
+<p><strong>Use case</strong>: Legacy compatibility, traditional address formats</p>
+<h2>Policy Limitations</h2>
+<p>Some policies <strong>cannot be compiled</strong>:</p>
+<h3>Size Limits</h3>
+<ul>
+<li>P2WSH: ~3,600 bytes practical limit</li>
+<li>Taproot: 10,000 bytes per leaf</li>
+<li>Too complex policies exceed these limits</li>
+</ul>
+<h3>Unsatisfiable Combinations</h3>
+<p>Example: <code>and(after(100000),after(200000))</code> in one input - impossible to satisfy both</p>
+<h3>Resource Limits</h3>
+<p>Bitcoin consensus limits:</p>
+<ul>
+<li>Stack size</li>
+<li>Script execution steps</li>
+<li>Signature operations</li>
+</ul>
+<p>When compilation fails, <a href="https://adys.dev/miniscript">Miniscript Studio</a> shows detailed error messages.</p>
+<h2>Testing Your Policies</h2>
+<p><strong>Use <a href="https://adys.dev/miniscript">Miniscript Studio</a> to</strong>:</p>
+<ol>
+<li>Write and validate policy syntax</li>
+<li>Compile to Miniscript and Bitcoin Script</li>
+<li>Analyze spending costs</li>
+<li>Generate testnet/mainnet addresses</li>
+<li>Compare policy alternatives</li>
+<li>Understand spending paths</li>
+</ol>
+<p><strong>Always test on testnet first</strong> before deploying to mainnet.</p>
+<h2>Conclusion</h2>
+<p>Miniscript&#39;s Policy Language transforms Bitcoin spending conditions from complex, error-prone scripts into simple, readable statements.</p>
+<p>By mastering the core primitives - <code>pk</code>, <code>or</code>, <code>and</code>, <code>thresh</code>, <code>after</code>, <code>older</code>, probability weights, and hash functions - you can design sophisticated custody solutions: multisig wallets, vaults, inheritance plans, HTLCs, social recovery, and more.</p>
+<p>Policy makes Bitcoin Script <strong>safe</strong>, <strong>analyzable</strong>, and <strong>composable</strong> - essential for modern Bitcoin custody.</p>
+<p>👉 <strong>Start building</strong>: <a href="https://adys.dev/miniscript">https://adys.dev/miniscript</a></p>
+<p>👉 <strong>Learn more</strong>: <a href="https://bitcoin.sipa.be/miniscript/">Bitcoin Miniscript Docs</a></p>
+<p>👉 <strong>Rust Library</strong>: <a href="https://github.com/rust-bitcoin/rust-miniscript">rust-miniscript</a></p>
+<p><em>Questions? Reach out via <a href="https://github.com/adyshimony">GitHub</a> or <a href="https://x.com/adyshimony">Twitter/X</a>.</em></p>
+
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Adys.</p>
+            <a href="https://github.com/adyshimony">Github</a>
+        </div>
+    </footer>
+
+    <script>
+        // Theme management
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            updateThemeIcon(savedTheme);
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const toggleBtn = document.querySelector('.theme-toggle');
+            if (toggleBtn) {
+                toggleBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            }
+        }
+
+        // Mobile menu toggle
+        function toggleMenu() {
+            const navMenu = document.getElementById('navMenu');
+            navMenu.classList.toggle('active');
+        }
+
+        // Initialize theme when DOM is ready
+        document.addEventListener('DOMContentLoaded', initTheme);
+    </script>
+</body>
+</html>
