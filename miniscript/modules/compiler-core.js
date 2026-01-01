@@ -85,6 +85,10 @@ export class MiniscriptCompiler {
                 console.log('Policy undo stack:', this.undoStacks.policy);
                 console.log('Miniscript undo stack:', this.undoStacks.miniscript);
             }, CONSTANTS.INIT_DELAY_MS);
+
+            // Dispatch event to signal compiler is fully ready
+            window.dispatchEvent(new CustomEvent('compilerReady'));
+            console.log('Compiler ready event dispatched');
         } catch (error) {
             console.error('Failed to initialize WASM module:', error);
             this.showError('Failed to load compiler module. Please refresh the page.');
@@ -668,7 +672,7 @@ export class MiniscriptCompiler {
                     if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
                         displayExpression = this.replaceKeysWithNames(expression);
                     }
-                    successMsg = `Miniscript expression:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${displayExpression}</span>`;
+                    successMsg = `Miniscript expression:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${displayExpression}</span>`;
                     
                     if (isTaprootContext && result.compiled_miniscript) {
                         // Show descriptor for all Taproot contexts
@@ -694,22 +698,22 @@ export class MiniscriptCompiler {
                                 // Simple pk(KEY) - optimized to key-only Taproot
                                 // Extract key and checksum from tr(NUMS,pk(KEY))#checksum to tr(KEY)#checksum
                                 const keyOnlyDescriptor = displayDescriptor.replace(/^tr\([^,]+,pk\(([^)]+)\)\)(#[a-z0-9]+)?$/, 'tr($1)$2');
-                                successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${keyOnlyDescriptor}</span><br>`;
+                                successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${keyOnlyDescriptor}</span><br>`;
                                 successMsg += `Optimized to key-only Taproot. Most efficient spend (66 WU, no script revealed).<br><br>`;
                             } else {
                                 // More complex miniscript - single script leaf
-                                successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${displayDescriptor}</span><br>`;
+                                successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${displayDescriptor}</span><br>`;
                             }
                         } else {
                             // Other Taproot modes
-                            successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${displayDescriptor}</span><br>`;
+                            successMsg += `<br>Taproot descriptor:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${displayDescriptor}</span><br>`;
                         }
-                        
+
                         // Add Data field for all Taproot contexts
                         if (result.script) {
                             // Remove OP_1 (51) + push32 (20) prefix to show just the tweaked key
                             const tweakedKey = result.script.substring(4);
-                            successMsg += `Data (tweaked public key):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${tweakedKey}</span><br>`;
+                            successMsg += `Data (tweaked public key):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${tweakedKey}</span><br>`;
                         }
                     } else if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         // Different calculation for Legacy vs Segwit contexts
@@ -783,10 +787,10 @@ export class MiniscriptCompiler {
                     if (result.script) {
                         if (isTaprootContext) {
                             // For Taproot contexts, show complete scriptPubKey as-is
-                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${result.script}</span><br>`;
+                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
                         } else {
                             // For non-Taproot contexts, show original script in HEX
-                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${result.script}</span><br>`;
+                            successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
                         }
                     }
                     if (result.script_asm) {
@@ -819,18 +823,18 @@ export class MiniscriptCompiler {
                                 }
 
                                 if (leafAsm) {
-                                    successMsg += `ASM (leaf):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${leafAsm}</span><br>`;
+                                    successMsg += `ASM (leaf):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${leafAsm}</span><br>`;
                                 }
                             }
 
-                            successMsg += `ASM (scriptPubKey):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${finalAsm}</span><br>`;
+                            successMsg += `ASM (scriptPubKey):<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
                         } else {
                             // For other contexts, show normal ASM
-                            successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${finalAsm}</span><br>`;
+                            successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
                         }
                     }
                     if (result.address) {
-                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${result.address}</span>`;
+                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.address}</span>`;
                         
                     }
                 }
@@ -1082,7 +1086,7 @@ export class MiniscriptCompiler {
                     if (showKeyNames && this.keyVariables && this.keyVariables.size > 0) {
                         displayMiniscriptExpr = this.replaceKeysWithNames(displayMiniscript);
                     }
-                    successMsg = `Miniscript expression:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${displayMiniscriptExpr}</span>`;
+                    successMsg = `Miniscript expression:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${displayMiniscriptExpr}</span>`;
                     
                     if (result.max_weight_to_satisfy && result.max_satisfaction_size) {
                         // Different calculation for Legacy vs Segwit contexts
@@ -1154,7 +1158,7 @@ export class MiniscriptCompiler {
                     
                     // Add hex, asm, and address
                     if (result.script) {
-                        successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${result.script}</span><br>`;
+                        successMsg += `HEX:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.script}</span><br>`;
                     }
                     if (result.script_asm) {
                         // Create simplified version with key names (same as script field)
@@ -1165,10 +1169,10 @@ export class MiniscriptCompiler {
                         if (showKeyNames && this.keyVariables.size > 0) {
                             finalAsm = this.replaceKeysWithNames(simplifiedAsm);
                         }
-                        successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${finalAsm}</span><br>`;
+                        successMsg += `ASM:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${finalAsm}</span><br>`;
                     }
                     if (result.address) {
-                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${result.address}</span>`;
+                        successMsg += `Address:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${result.address}</span>`;
                     }
                 }
                 
@@ -1283,9 +1287,9 @@ export class MiniscriptCompiler {
 
         // Check if we should show key names based on toggle state (check both toggles)
         const policyToggle = document.getElementById('policy-key-names-toggle');
-        const miniscriptToggle = document.getElementById('miniscript-key-names-toggle');
+        const miniscriptToggle = document.getElementById('key-names-toggle');
         const activeToggle = targetDivId === 'policy-errors' ? policyToggle : miniscriptToggle;
-        const showKeyNames = activeToggle?.dataset.active !== 'false' && this.keyVariables && this.keyVariables.size > 0;
+        const showKeyNames = activeToggle?.dataset.active === 'true' && this.keyVariables && this.keyVariables.size > 0;
 
         // Helper to optionally replace keys with names
         const maybeReplaceKeys = (text) => showKeyNames ? this.replaceKeysWithNames(text) : text;
@@ -1300,16 +1304,35 @@ export class MiniscriptCompiler {
 
         // Warning for miniscript lift (not for policy info)
         if (showWarning) {
-            content += `<div style="color: #ffffff; font-weight: bold; margin-bottom: 10px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px;">⚠️ Lifted Policy from Miniscript - for analysis purposes only. May differ from the original, may not be compilable back to Miniscript, and probability information cannot be recovered.</div>`;
+            content += `<div style="color: #ffffff; font-weight: bold; margin-bottom: 10px;">⚠️ Lifted Policy from Miniscript - for analysis purposes only. May differ from the original, may not be compilable back to Miniscript, and probability information cannot be recovered.</div>`;
+        }
+
+        // Security warnings at the top (malleable, no sig required, etc.)
+        if (result.warnings && result.warnings.length > 0) {
+            result.warnings.forEach(warning => {
+                const isError = warning.includes('❌');
+                const isSecurity = warning.includes('SECURITY') || warning.includes('MALLEABLE');
+                if (isSecurity || isError) {
+                    content += `<div style="color: #ffffff; font-weight: bold; margin-bottom: 10px;">${this.escapeHtml(warning)}</div>`;
+                }
+            });
         }
 
         // Spending Logic
         if (result.spending_logic) {
-            content += `Spending Logic:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block; font-size: 12px;">${this.escapeHtml(maybeReplaceKeys(result.spending_logic))}</span><br>`;
+            content += `Spending Logic:<br><span style="word-break: break-all; overflow-wrap: anywhere; font-family: monospace; display: block;">${this.escapeHtml(maybeReplaceKeys(result.spending_logic))}</span><br>`;
         }
 
-        // Spending Paths
-        if (result.spending_paths && result.spending_paths.length > 0) {
+        // Spending Paths (grouped display)
+        if (result.spending_paths_grouped && result.spending_paths_grouped.length > 0) {
+            const totalPaths = result.spending_paths_grouped.reduce((sum, g) => sum + g.path_count, 0);
+            content += `Spending Paths: ${totalPaths} combination${totalPaths !== 1 ? 's' : ''}<br>`;
+
+            // Always show full tree structure with Branch labels
+            content += this.renderSpendingPathGroups(result.spending_paths_grouped, maybeReplaceKeys, 0, result.spending_paths || []);
+            content += `<br>`;
+        } else if (result.spending_paths && result.spending_paths.length > 0) {
+            // Fallback to flat list if grouped not available
             content += `Spending Paths:<br>`;
             result.spending_paths.forEach(path => {
                 content += `<div style="margin-left: 10px;">${this.escapeHtml(maybeReplaceKeys(path))}</div>`;
@@ -1390,17 +1413,7 @@ export class MiniscriptCompiler {
         // Tree Structure
         if (result.tree_structure) {
             const treeFormatted = this.formatPolicyTreeAsVerticalHierarchy(result.tree_structure, showKeyNames);
-            content += `
-                <div style="margin-top: 15px;">
-                    Tree structure
-                    <pre style="margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; overflow-x: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 12px; line-height: 1.4; background: transparent;">${this.escapeHtml(treeFormatted)}</pre>
-                </div>
-            `;
-        }
-
-        // Warnings - only show if there are warnings
-        if (result.warnings && result.warnings.length > 0) {
-            content += `<div style="margin-top: 10px; font-size: 13px;">Warnings: ${result.warnings.map(w => this.escapeHtml(w)).join(', ')}</div>`;
+            content += `<div style="margin-top: 15px;">Tree structure<pre style="margin-top: 8px; margin-bottom: 0; padding: 12px; border: 1px solid var(--border-color); border-radius: 4px; overflow-x: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 12px; line-height: 1.4; background: transparent;">${this.escapeHtml(treeFormatted)}</pre></div>`;
         }
 
         content += '</div>';
@@ -1524,9 +1537,9 @@ export class MiniscriptCompiler {
             return `
                 <div style="margin-top: 10px; text-align: left; font-size: 13px;">
                     Generated Miniscript:
-                    <code style="display: block; margin: 0; word-break: break-word; overflow-wrap: anywhere; hyphens: none; max-width: 100%; overflow-x: auto; font-family: monospace; font-size: 12px;">${miniscript}</code>
-                    <div style="color: var(--text-secondary); font-size: 13px; margin-top: 10px;">
-                        ${miniscript.match(/^\s*\{.*\}\s*$/) ? 
+                    <code style="display: block; margin: 0; word-break: break-word; overflow-wrap: anywhere; hyphens: none; max-width: 100%; overflow-x: auto; font-family: monospace;">${miniscript}</code>
+                    <div style="margin-top: 10px;">
+                        ${miniscript.match(/^\s*\{.*\}\s*$/) ?
                             '💡 Policy compiled into multiple miniscript expressions. Cannot load into miniscript editor. Switch to Taproot compilation (multi-leaf TapTree) mode to select your miniscript expression.' :
                             '💡 Check the miniscript below for script hex, ASM, and address details.'
                         }
@@ -2520,7 +2533,7 @@ export class MiniscriptCompiler {
                 '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
                 '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
                 '03f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
-                '02318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac',
+                '0282b192f6afb009bb42ce4ba1a61a7e5c7d3110bcdd23eb4198b08dadddc27584',
                 '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
                 '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
                 '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
@@ -2632,7 +2645,39 @@ export class MiniscriptCompiler {
                 '92ceee56b2189cbea7568a7d500673e8baa72958ac95b74e854305f589a95a40',
                 'c5c82d657eb3a51013b2ba28df1686cff3cdde896a793ca07ae3415dde5d7db2',
                 '52c98024feca5596ef686e22042f6e9f750eadaf3ceb0930644823069b65ea92',
-                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1'
+                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1',
+                // New validated x-only keys (batch 1 - 18 keys)
+                '0d7766d858fece3a8212ba2ef69f90dcd26b2b341e2c36d95584007954c5cfb3',
+                '2b0ac384c360d77e8f698346636909e50d27eb781c5cb0fd0a9b293765c598a7',
+                '73114f3ccd666b3ed88bcba00d468f0541fed066de91a00d0b8c47fd2f0a2d7c',
+                '0a275b1bef8019d6f67c06e5f870050d10fdce9e0b0f8c93fbdc2eb0117ac001',
+                'eb9db5af08eb20d7a177d0cdf8511be7f671e9c75b50426b6e0e275bce5dd6dd',
+                'a07517bed0cd5654b8ce9ae4eaf5dd1c6f0e7cd84f19a7c1954bbeb1d5e7bc56',
+                '019ef58a4fe1f332920ad48daff4c34789e1f2f13297f82235c330ebe2fa3320',
+                '8db0dfac6338390cc901f88f0e9aac01a309075920b7cdf5b5342277d53d352b',
+                '00843d8a4ce565321b4c3ee99f0836dec3607c6ecaaab4b99074f55b9f265b75',
+                'd04602f5e2d0d165ff2045594a67ed0309abb46ea688c5cecf605e1407f0da05',
+                '62edc62eeaba2af54f762a6a41a68e556f367413b080ef8904434056dd70116b',
+                'b0633d6807bb6225fabab5402686469ed3b1c6d47129e604c1a9d6df4c48afb0',
+                'da15cf0edb6a31804b1abb44c61eca742b910661bda44296524fb455c4b32328',
+                '9d1d2499e517e458598b1a4de3c1355c16c616fb55de68772c67ea9500d5e096',
+                'ac073fb3b8b8c7b20b741410dc584565e30da532d860a7220880e6dfca152758',
+                '69230a8f58d31a5e04b739a19ebb29aba877e7cbdcb20dff51013cbf56767885',
+                '10cfd884401265088882b2590aac00c7f8fe800960ad88bfbafab23a475eee6a',
+                'c650b469ef79938d06c75f399c28fc5ece79c408eded7f2c4bde84428167928a',
+                // New validated x-only keys (batch 2 - 12 keys)
+                '7f441da4a3be6f66784aa395a34fdf1aa337d52f5382ceba8cf20452c22f0b8b',
+                '044a661ec2162adad1ecc8011af75f6778c525ba19f9a0b087d4f70eedba8061',
+                '9c12b2916252aa3738eebd580a20372392f0c705e09ba5d458dedee0d280c7a4',
+                'c6131afd201b429f0b339be22548cd0b113369a11e2c74fb75a172fd3da1b225',
+                'aea18a905e90e8b2f9a03a4991c1f2c4e83accbdf4b98d98d3915caf004b6ebb',
+                '91d53ec44c80e0837d6ef2a6a3cabff5a8c3d953206a7d61e30a7bf255cd6f7e',
+                '6f1f9a8b94c3a41cd070dc9d77ec775e8d1a8bb84e58e39d59c4645a0468c39d',
+                '2202482da4cb04766ef16aa5ef43af0b5197cbe12da2120ad1d1974c8352fbae',
+                'f7dccbf3790e3e25119ffe406a9d480c9be842b2467e53dcae371c90042a68a0',
+                'c6c42267a5d37b0717c4ced5bb3e06fd438707d2d82c8bdfa71054a39297518f',
+                'e32658f63f80e1e82c617cf7ac1ca05a77b191fd19ac1ac7a7dd783ee1469ede',
+                '0e0d77784f78533aae3533d1de22f7c640edd744b101def741bd8db0f3a35f8c'
             ],
             xpub: [
                 'xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda',
@@ -3377,7 +3422,7 @@ export class MiniscriptCompiler {
                 '030bf2c8353ed6360cc76ae447d20f3e52988ebb325057f551a6156c254b9fb9ab',
                 '02cb48e9d06a6baf071d581e7844e9a62a560aca3512edff68623d5003549fcef0',
                 '03f4c1a73d0bd7dbc0c25aa361684bcb158c274ad76477eb145faea3858dc2fd4f',
-                '02318f455a1ef51763e1acb573449e4a52e8fcada49f8a0fea8387a4f4b146b3ac',
+                '0282b192f6afb009bb42ce4ba1a61a7e5c7d3110bcdd23eb4198b08dadddc27584',
                 '03681ff8dd97a900012dc58dcb4b9ab3e40b29b96bc3e014ae1eba4f7b80abb3c8',
                 '0230efbeba3e9b9321c1cbcf93f416c25fbcb96c322b3ecc73e0dfd6db558ca682',
                 '03996553edf7dc7702e4f4ed8e2feadb5dbbd1f3c55c64c7ee943b32e870d1f2a0',
@@ -3468,7 +3513,39 @@ export class MiniscriptCompiler {
                 '92ceee56b2189cbea7568a7d500673e8baa72958ac95b74e854305f589a95a40',
                 'c5c82d657eb3a51013b2ba28df1686cff3cdde896a793ca07ae3415dde5d7db2',
                 '52c98024feca5596ef686e22042f6e9f750eadaf3ceb0930644823069b65ea92',
-                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1'
+                '95b870e26464797b20d7eb59af2b4a04d31f727b9bfa496e72e029c1634a47b1',
+                // New validated x-only keys (batch 1 - 18 keys)
+                '0d7766d858fece3a8212ba2ef69f90dcd26b2b341e2c36d95584007954c5cfb3',
+                '2b0ac384c360d77e8f698346636909e50d27eb781c5cb0fd0a9b293765c598a7',
+                '73114f3ccd666b3ed88bcba00d468f0541fed066de91a00d0b8c47fd2f0a2d7c',
+                '0a275b1bef8019d6f67c06e5f870050d10fdce9e0b0f8c93fbdc2eb0117ac001',
+                'eb9db5af08eb20d7a177d0cdf8511be7f671e9c75b50426b6e0e275bce5dd6dd',
+                'a07517bed0cd5654b8ce9ae4eaf5dd1c6f0e7cd84f19a7c1954bbeb1d5e7bc56',
+                '019ef58a4fe1f332920ad48daff4c34789e1f2f13297f82235c330ebe2fa3320',
+                '8db0dfac6338390cc901f88f0e9aac01a309075920b7cdf5b5342277d53d352b',
+                '00843d8a4ce565321b4c3ee99f0836dec3607c6ecaaab4b99074f55b9f265b75',
+                'd04602f5e2d0d165ff2045594a67ed0309abb46ea688c5cecf605e1407f0da05',
+                '62edc62eeaba2af54f762a6a41a68e556f367413b080ef8904434056dd70116b',
+                'b0633d6807bb6225fabab5402686469ed3b1c6d47129e604c1a9d6df4c48afb0',
+                'da15cf0edb6a31804b1abb44c61eca742b910661bda44296524fb455c4b32328',
+                '9d1d2499e517e458598b1a4de3c1355c16c616fb55de68772c67ea9500d5e096',
+                'ac073fb3b8b8c7b20b741410dc584565e30da532d860a7220880e6dfca152758',
+                '69230a8f58d31a5e04b739a19ebb29aba877e7cbdcb20dff51013cbf56767885',
+                '10cfd884401265088882b2590aac00c7f8fe800960ad88bfbafab23a475eee6a',
+                'c650b469ef79938d06c75f399c28fc5ece79c408eded7f2c4bde84428167928a',
+                // New validated x-only keys (batch 2 - 12 keys)
+                '7f441da4a3be6f66784aa395a34fdf1aa337d52f5382ceba8cf20452c22f0b8b',
+                '044a661ec2162adad1ecc8011af75f6778c525ba19f9a0b087d4f70eedba8061',
+                '9c12b2916252aa3738eebd580a20372392f0c705e09ba5d458dedee0d280c7a4',
+                'c6131afd201b429f0b339be22548cd0b113369a11e2c74fb75a172fd3da1b225',
+                'aea18a905e90e8b2f9a03a4991c1f2c4e83accbdf4b98d98d3915caf004b6ebb',
+                '91d53ec44c80e0837d6ef2a6a3cabff5a8c3d953206a7d61e30a7bf255cd6f7e',
+                '6f1f9a8b94c3a41cd070dc9d77ec775e8d1a8bb84e58e39d59c4645a0468c39d',
+                '2202482da4cb04766ef16aa5ef43af0b5197cbe12da2120ad1d1974c8352fbae',
+                'f7dccbf3790e3e25119ffe406a9d480c9be842b2467e53dcae371c90042a68a0',
+                'c6c42267a5d37b0717c4ced5bb3e06fd438707d2d82c8bdfa71054a39297518f',
+                'e32658f63f80e1e82c617cf7ac1ca05a77b191fd19ac1ac7a7dd783ee1469ede',
+                '0e0d77784f78533aae3533d1de22f7c640edd744b101def741bd8db0f3a35f8c'
             ],
             xpub: [
                 'xpub6Ctf53JHVC5K4JHwatPdJyXjzADFQt7pazJdQ4rc7j1chsQW6KcJUHFDbBn6e5mvGDEnFhFBCkX383uvzq14Y9Ado5qn5Y7qBiXi5DtVBda',
@@ -4751,26 +4828,25 @@ export class MiniscriptCompiler {
             display.dataset.simplifiedAsm = simplifiedAsm;
             display.dataset.originalWithKeyNames = originalWithKeyNames;
             display.dataset.simplifiedWithKeyNames = simplifiedWithKeyNames;
-            
             // Add event listener for key names toggle button
             keyNamesToggle.addEventListener('click', () => {
                 const isActive = keyNamesToggle.dataset.active === 'true';
-                const isHidingPushbytes = toggleButton.dataset.active === 'true';
-                
+                const currentValue = display.value;
+
                 if (isActive) {
-                    // Hide key names - show actual keys
-                    display.value = isHidingPushbytes ? display.dataset.simplifiedAsm : display.dataset.originalAsm;
+                    // Hide key names - replace names with actual keys
+                    display.value = this.replaceNamesWithKeys(currentValue);
                     keyNamesToggle.style.color = 'var(--text-secondary)';
                     keyNamesToggle.title = 'Show key names';
                     keyNamesToggle.dataset.active = 'false';
                 } else {
-                    // Show key names - use pre-computed versions
-                    display.value = isHidingPushbytes ? display.dataset.simplifiedWithKeyNames : display.dataset.originalWithKeyNames;
+                    // Show key names - replace keys with names
+                    display.value = this.replaceKeysWithNames(currentValue);
                     keyNamesToggle.style.color = 'var(--success-border)';
                     keyNamesToggle.title = 'Hide key names';
                     keyNamesToggle.dataset.active = 'true';
                 }
-                
+
                 // Reset format state when toggling key names
                 formatButton.dataset.formatted = 'false';
                 formatButton.style.color = 'var(--text-secondary)';
@@ -4782,22 +4858,22 @@ export class MiniscriptCompiler {
             
             toggleButton.addEventListener('click', () => {
                 const isCurrentlyHiding = toggleButton.dataset.active === 'true';
-                const isShowingKeyNames = keyNamesToggle.dataset.active === 'true';
-                
+                const currentValue = display.value;
+
                 if (isCurrentlyHiding) {
-                    // Show pushbytes
-                    display.value = isShowingKeyNames ? display.dataset.originalWithKeyNames : display.dataset.originalAsm;
+                    // Show pushbytes - expand the current ASM
+                    display.value = this.expandAsm(currentValue);
                     toggleButton.style.color = 'var(--text-secondary)';
                     toggleButton.title = 'Hide pushbytes';
                     toggleButton.dataset.active = 'false';
                 } else {
-                    // Hide pushbytes
-                    display.value = isShowingKeyNames ? display.dataset.simplifiedWithKeyNames : display.dataset.simplifiedAsm;
+                    // Hide pushbytes - simplify the current ASM
+                    display.value = this.simplifyAsm(currentValue);
                     toggleButton.style.color = 'var(--success-border)';
                     toggleButton.title = 'Show pushbytes';
                     toggleButton.dataset.active = 'true';
                 }
-                
+
                 // Reset format state when toggling hide-pushbytes
                 formatButton.dataset.formatted = 'false';
                 formatButton.style.color = 'var(--text-secondary)';
@@ -6290,6 +6366,64 @@ export class MiniscriptCompiler {
     }
 
     /**
+     * Render grouped spending paths as HTML
+     * @param {Array} groups - Array of SpendingPathGroup objects
+     * @param {Function} maybeReplaceKeys - Function to replace key aliases
+     * @param {number} depth - Current nesting depth
+     * @returns {string} HTML content
+     */
+    renderSpendingPathGroups(groups, maybeReplaceKeys, depth = 0, allSpendingPaths = []) {
+        let content = '';
+        const indent = depth * 20;
+
+        groups.forEach((group) => {
+            // Group header with label, summary, and count on one line
+            content += `<div style="margin-left: ${indent}px;">`;
+            if (group.summary) {
+                content += `${this.escapeHtml(group.label)}: ${this.escapeHtml(maybeReplaceKeys(group.summary))} - (${group.path_count} combination${group.path_count !== 1 ? 's' : ''})`;
+            } else {
+                content += `${this.escapeHtml(group.label)} (${group.path_count} combination${group.path_count !== 1 ? 's' : ''})`;
+            }
+            content += `</div>`;
+
+            // Individual paths (full list if available, or preview with "... and X more")
+            if (group.paths && group.paths.length > 0) {
+                group.paths.forEach((path, pathIndex) => {
+                    content += `<div style="margin-left: ${indent + 20}px;">`;
+                    content += `Path ${pathIndex + 1}: ${this.escapeHtml(maybeReplaceKeys(path))}`;
+                    content += `</div>`;
+                });
+            } else if (group.preview_paths && group.preview_paths.length > 0) {
+                group.preview_paths.forEach((path, pathIndex) => {
+                    content += `<div style="margin-left: ${indent + 20}px;">`;
+                    content += `Path ${pathIndex + 1}: ${this.escapeHtml(maybeReplaceKeys(path))}`;
+                    content += `</div>`;
+                });
+                // Find problematic paths (no signature required) from full spending_paths
+                const problematicPaths = allSpendingPaths.filter(p => !p.includes(' signs'));
+                const previewCount = group.preview_paths.length;
+                const problematicCount = problematicPaths.length;
+                const remaining = group.path_count - previewCount - problematicCount;
+                if (remaining > 0) {
+                    content += `<div style="margin-left: ${indent + 20}px;">... and ${remaining} more</div>`;
+                }
+                // Show all problematic paths with warning (don't add if already present)
+                problematicPaths.forEach((path) => {
+                    const pathWithWarning = path.includes('⚠️') ? path : `${path} ⚠️ (no signature required)`;
+                    content += `<div style="margin-left: ${indent + 20}px;">${this.escapeHtml(maybeReplaceKeys(pathWithWarning))}</div>`;
+                });
+            }
+
+            // Nested children if available
+            if (group.children && group.children.length > 0) {
+                content += this.renderSpendingPathGroups(group.children, maybeReplaceKeys, depth + 1, allSpendingPaths);
+            }
+        });
+
+        return content;
+    }
+
+    /**
      * Calculate node positions for PolicyTreeNode structure
      */
     calculatePolicyNodePositions(tree, depth, position, replaceKeys = false) {
@@ -7017,21 +7151,11 @@ export class MiniscriptCompiler {
     }
 
     setupReplaceKeysCheckbox() {
-        console.log('Setting up replace keys buttons');
-        // Initialize both toggle button states
-        setTimeout(() => {
-            const miniscriptToggleBtn = document.getElementById('key-names-toggle');
-            if (miniscriptToggleBtn) {
-                miniscriptToggleBtn.dataset.active = 'false';
-                console.log('Miniscript toggle button initialized');
-            }
-            
-            const policyToggleBtn = document.getElementById('policy-key-names-toggle');
-            if (policyToggleBtn) {
-                policyToggleBtn.dataset.active = 'false';
-                console.log('Policy toggle button initialized');
-            }
-        }, CONSTANTS.INIT_DELAY_MS);
+        // Toggle button states are initialized in DOMContentLoaded (window-functions.js)
+        // and updated by loadPolicyExample/loadExample when loading from URL
+        // No additional setup needed here - removing delayed reset that was
+        // overwriting URL-loaded toggle states
+        console.log('Replace keys buttons ready');
     }
 
     clearExpression() {
@@ -7636,6 +7760,36 @@ export class MiniscriptCompiler {
             .replace(/OP_PUSHDATA\d?\s+/g, '')
             .replace(/\s+/g, ' ')
             .trim();
+    }
+
+    expandAsm(simplifiedAsm) {
+        // Add OP_PUSHBYTES_* back to hex data based on byte length
+        // This is the inverse of simplifyAsm
+        const tokens = simplifiedAsm.split(/\s+/);
+        const result = [];
+
+        for (const token of tokens) {
+            if (!token) continue;
+
+            // Check if token is hex data (even length, all hex chars, not an opcode)
+            if (/^[0-9a-fA-F]+$/.test(token) && token.length % 2 === 0 && !token.startsWith('OP_')) {
+                const byteLength = token.length / 2;
+                if (byteLength <= 75) {
+                    result.push(`OP_PUSHBYTES_${byteLength} ${token}`);
+                } else if (byteLength <= 255) {
+                    result.push(`OP_PUSHDATA1 ${token}`);
+                } else if (byteLength <= 65535) {
+                    result.push(`OP_PUSHDATA2 ${token}`);
+                } else {
+                    result.push(`OP_PUSHDATA4 ${token}`);
+                }
+            } else {
+                // Keep opcodes and other tokens as-is
+                result.push(token);
+            }
+        }
+
+        return result.join(' ');
     }
 
     detectContextFromExpression(expression) {

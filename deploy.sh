@@ -17,6 +17,10 @@ cp -f "$SRC_DIR/miniscript/script.js" "$DEST_DIR/miniscript/script.js"
 echo "📁 Copying index.html..."
 cp -f "$SRC_DIR/miniscript/index.html" "$DEST_DIR/miniscript/index.html"
 
+echo "📁 Copying og-image-v7.png..."
+cp -f "$SRC_DIR/miniscript/og-image-v7.png" "$DEST_DIR/miniscript/og-image-v7.png"
+
+
 echo "📁 Copying js folder..."
 mkdir -p "$DEST_DIR/miniscript/modules"
 cp -f "$SRC_DIR/miniscript/modules/"* "$DEST_DIR/miniscript/modules/"

@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Miniscript Studio</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔨</text></svg>">
+
+<link rel="canonical" href="https://adys.dev/miniscript" />
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://adys.dev/miniscript">
+<meta property="og:site_name" content="Miniscript Studio">
+<meta property="og:title" content="Miniscript Studio">
+<meta property="og:description" content="An online IDE to compile Bitcoin policies to Miniscript & Script, derive addresses & descriptors, and analyze spending paths.">
+<meta property="og:image" content="https://adys.dev/miniscript/og-image-v7.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="628">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Miniscript Studio">
+<meta name="twitter:description" content="An online IDE to compile Bitcoin policies to Miniscript & Script, derive addresses & descriptors, and analyze spending paths.">
+<meta name="twitter:image" content="https://adys.dev/miniscript/og-image-v7.png">
+<meta name="twitter:image:alt" content="Miniscript Studio logo">
+
     <style>
         /* Dark theme (default) */
         :root {
@@ -666,6 +684,11 @@
                 padding: 10px 12px !important;
             }
             
+            /* Mobile: Hide clear buttons */
+            #clear-policy-btn, #clear-btn {
+                display: none !important;
+            }
+
             /* Mobile: Hide auto-compile containers and theme toggle */
             .auto-compile-container {
                 display: none !important;
@@ -808,6 +831,46 @@
             textarea[readonly] {
                 font-size: 12px !important;
             }
+
+            /* Mobile: Desktop recommendation banner */
+            .mobile-banner:not(.hidden) {
+                display: flex !important;
+            }
+        }
+
+        /* Mobile banner - hidden by default on desktop */
+        .mobile-banner {
+            display: none;
+            background: #3b82f6;
+            color: white;
+            padding: 10px 15px;
+            margin: -15px -15px 15px -15px;
+            border-radius: 8px 8px 0 0;
+            font-size: 13px;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+        }
+
+        .mobile-banner-text {
+            text-align: center;
+        }
+
+        .mobile-banner-close {
+            position: absolute;
+            right: 10px;
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 20px;
+            padding: 0 4px;
+            opacity: 0.8;
+        }
+
+        .mobile-banner-close:hover {
+            opacity: 1;
         }
 
         @media (max-width: 480px) {
@@ -1129,6 +1192,12 @@
     
     <div class="main-content">
         <div class="container">
+            <!-- Mobile banner - recommend desktop -->
+            <div id="mobile-banner" class="mobile-banner">
+                <span class="mobile-banner-text">For the best experience, use on a desktop browser</span>
+                <button class="mobile-banner-close" onclick="this.parentElement.classList.add('hidden')" aria-label="Close">&times;</button>
+            </div>
+
             <!-- Theme toggle button -->
             <button id="floating-theme-toggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
                 <span id="theme-icon">☀️</span>
@@ -2110,6 +2179,8 @@
 
                 <p style="margin: 10px 0; font-size: 13px; color: var(--text-muted);">
                     <strong>Reference:</strong> <a href="https://bitcoin.sipa.be/miniscript/" target="_blank" style="color: var(--border-focus); text-decoration: none;">https://bitcoin.sipa.be/miniscript/</a>
+                    <br>
+                    <strong>BIP-379:</strong> <a href="https://github.com/bitcoin/bips/blob/master/bip-0379.md" target="_blank" style="color: var(--border-focus); text-decoration: none;">https://github.com/bitcoin/bips/blob/master/bip-0379.md</a>
                 </p>
             </div>
         </details>

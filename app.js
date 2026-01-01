@@ -47,6 +47,15 @@ class SPARouter {
                 e.preventDefault();
                 this.navigate(href);
             }
+
+            // Close mobile menu when clicking outside of it or on a nav link
+            const navMenu = document.getElementById('navMenu');
+            const hamburger = e.target.closest('.hamburger');
+            const clickedNavLink = e.target.closest('.nav-menu a');
+            const clickedInsideMenu = e.target.closest('.nav-menu');
+            if (navMenu && !hamburger && (!clickedInsideMenu || clickedNavLink)) {
+                navMenu.classList.remove('active');
+            }
         });
     }
 
